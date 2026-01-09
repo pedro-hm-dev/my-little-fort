@@ -5,6 +5,11 @@ export interface Unit {
   targetPosition?: Position;
   health: number;
   maxHealth: number;
+  iconName: string;
+  iconBaseSize: number;
+  iconSize: number;
+  baseSpeed: number;
+  speed: number;
 }
 
 export enum UnitType {

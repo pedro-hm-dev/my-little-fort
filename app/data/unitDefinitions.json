@@ -1,0 +1,21 @@
+{
+  "worker": {
+    "type": "worker",
+    "maxHealth": 50,
+    "iconName": "roman-toga",
+    "iconBaseSize": 45,
+    "iconSize": 45,
+    "baseSpeed": 2.5,
+    "speed": 2.5
+  },
+
+  "soldier": {
+    "type": "soldier",
+    "maxHealth": 100,
+    "iconName": "swordman",
+    "iconBaseSize": 45,
+    "iconSize": 45,
+    "baseSpeed": 3.0,
+    "speed": 3.0
+  }
+}

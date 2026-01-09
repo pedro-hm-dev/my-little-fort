@@ -1,0 +1,9 @@
+{
+  "fort": {
+    "type": "fort",
+    "maxHealth": 500,
+    "iconName": "sand-castle",
+    "iconBaseSize": 100,
+    "iconSize": 100
+  }
+}

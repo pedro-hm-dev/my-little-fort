@@ -4,6 +4,9 @@ export interface Structure {
   position: Position;
   health: number;
   maxHealth: number;
+  iconName: string;
+  iconBaseSize: number;
+  iconSize: number;
 }
 
 export enum StructureType {
