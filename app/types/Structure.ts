@@ -5,7 +5,6 @@ export interface Structure {
   health: number;
   maxHealth: number;
   iconName: string;
-  iconBaseSize: number;
   iconSize: number;
 }
 

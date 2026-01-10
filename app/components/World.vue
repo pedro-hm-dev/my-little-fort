@@ -27,25 +27,49 @@
         Center on Fort
       </button>
     </div>
+
+    <div class="absolute top-4 right-4 z-50">
+      <UButton
+        icon="i-heroicons-cube"
+        size="lg"
+        color="primary"
+        @click.stop="toggleResourcePanel"
+        class="shadow-lg"
+      />
+    </div>
+
+    <ResourcePanel :model-value="resourcePanelOpen" @update:model-value="resourcePanelOpen = $event" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { drawEntityIcon, preloadAllIcons } from "@/utils/iconRenderer";
 import { useCameraStore } from "@/stores/camera";
+import { useInventoryStore } from "@/stores/inventory";
+import { useWorldStore } from "@/stores/world";
 import { useStructureStore } from "@/stores/structures";
+import { useResourceStore } from "@/stores/resources";
 import { useUnitStore } from "@/stores/units";
 import { useSelectionStore } from "@/stores/selection";
 
 const camera = useCameraStore();
+const worldStore = useWorldStore();
 const structureStore = useStructureStore();
+const resourceStore = useResourceStore();
 const unitStore = useUnitStore();
 const selectionStore = useSelectionStore();
+const inventoryStore = useInventoryStore();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let ctx: CanvasRenderingContext2D | null = null;
 
 let animationFrameId: number | null = null;
+
+const resourcePanelOpen = ref(false);
+
+function toggleResourcePanel() {
+  resourcePanelOpen.value = !resourcePanelOpen.value;
+}
 
 interface PingEffect {
   x: number;
@@ -68,7 +92,17 @@ onMounted(async () => {
   // Preload all icons before initializing stores
   await preloadAllIcons();
 
+  // Initialize world terrain before entities
+  worldStore.initialize();
   structureStore.initialize();
+
+  // Initialize resources after structures (needs fort position)
+  const fortPos = structureStore.fortPosition;
+
+  if (fortPos) {
+    resourceStore.initialize(fortPos);
+  }
+
   unitStore.initialize();
 
   resizeCanvas();
@@ -117,6 +151,12 @@ const render = () => {
 
   drawGrid();
   drawMapBounds();
+  drawTerrain();
+
+  // Draw resources (before structures)
+  for (const resource of resourceStore.allResources) {
+    void drawEntityIcon(ctx, resource, resource.position, { size: resource.iconSize });
+  }
 
   // Draw structures first (below)
   for (const structure of structureStore.allStructures) {
@@ -217,6 +257,38 @@ const drawMapBounds = () => {
   ctx.strokeStyle = "#FFD700";
   ctx.lineWidth = 3 / camera.zoom;
   ctx.strokeRect(0, 0, camera.mapWidth, camera.mapHeight);
+};
+
+const drawTerrain = () => {
+  if (!ctx) return;
+
+  // Draw lakes (rounded polygons)
+  for (const lake of worldStore.allLakes) {
+    const outline = lake.outline;
+
+    if (!outline || outline.length < 3) continue;
+
+    ctx.fillStyle = "rgba(30, 144, 255, 0.35)"; // Blue with transparency
+    ctx.strokeStyle = "#1e90ff";
+    ctx.lineWidth = 2 / camera.zoom;
+    ctx.beginPath();
+
+    const first = outline[0];
+
+    if (!first) continue;
+
+    ctx.moveTo(first.x, first.y);
+
+    for (let i = 1; i < outline.length; i++) {
+      const p = outline[i];
+      if (!p) continue;
+      ctx.lineTo(p.x, p.y);
+    }
+
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
@@ -320,7 +392,28 @@ const handleContextMenu = (e: MouseEvent) => {
 
   const world = screenToWorld(e.offsetX, e.offsetY);
 
-  unitStore.moveUnitsTo(Array.from(selectionStore.selectedUnitIds), world.x, world.y);
+  // Check if clicking on a resource
+  let clickedResource = null;
+
+  for (const resource of resourceStore.allResources) {
+    const dx = world.x - resource.position.x;
+    const dy = world.y - resource.position.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance < resource.iconSize / 2) {
+      clickedResource = resource;
+
+      break;
+    }
+  }
+
+  if (clickedResource) {
+    // Send units to gather resource
+    unitStore.gatherResource(Array.from(selectionStore.selectedUnitIds), clickedResource.id);
+  } else {
+    // Regular move command
+    unitStore.moveUnitsTo(Array.from(selectionStore.selectedUnitIds), world.x, world.y);
+  }
 
   // Show ping effect
   pingEffect.value = {

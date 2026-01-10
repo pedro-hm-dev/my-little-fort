@@ -1,11 +1,12 @@
 import iconsJson from "@iconify-json/game-icons/icons.json";
 import { StructureType, type Structure, type Position as StructurePosition } from "@/types/Structure";
 import { UnitType, type Unit, type Position as UnitPosition } from "@/types/Unit";
+import { type Resource, type Position as ResourcePosition } from "@/types/Resource";
 import structureDefinitions from "~/data/structureDefinitions.json";
 import unitDefinitions from "~/data/unitDefinitions.json";
 
 // Reuse shared shape for both Unit and Structure positions
-export type Point = StructurePosition | UnitPosition;
+export type Point = StructurePosition | UnitPosition | ResourcePosition;
 
 type IconifyIconEntry = {
   body: string;
@@ -22,14 +23,15 @@ const iconPromiseCache = new Map<string, Promise<HTMLImageElement | null>>();
 
 const DEFAULT_ICON = "sand-castle";
 
-function resolveIconName(entity: Structure | Unit): string {
+function resolveIconName(entity: Structure | Unit | Resource): string {
   if (entity.iconName) return entity.iconName;
 
   return DEFAULT_ICON;
 }
 
-function buildIconImage(iconName: string): Promise<HTMLImageElement | null> {
-  const cachedPromise = iconPromiseCache.get(iconName);
+function buildIconImage(iconName: string, color: string = "white"): Promise<HTMLImageElement | null> {
+  const cacheKey = `${iconName}-${color}`;
+  const cachedPromise = iconPromiseCache.get(cacheKey);
 
   if (cachedPromise) return cachedPromise;
 
@@ -41,16 +43,16 @@ function buildIconImage(iconName: string): Promise<HTMLImageElement | null> {
     const width = iconEntry.width ?? 512;
     const height = iconEntry.height ?? 512;
 
-    // Replace currentColor with white to ensure icons render in white
-    const body = iconEntry.body.replace(/currentColor/g, "white");
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" fill="white">${body}</svg>`;
+    // Replace currentColor with specified color
+    const body = iconEntry.body.replace(/currentColor/g, color);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" fill="${color}">${body}</svg>`;
 
     const blob = new Blob([svg], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
     const img = new Image();
 
     img.onload = () => {
-      iconImageCache.set(iconName, img);
+      iconImageCache.set(cacheKey, img);
       URL.revokeObjectURL(url);
       resolve(img);
     };
@@ -63,21 +65,29 @@ function buildIconImage(iconName: string): Promise<HTMLImageElement | null> {
     img.src = url;
   });
 
-  iconPromiseCache.set(iconName, promise);
+  iconPromiseCache.set(cacheKey, promise);
 
   return promise;
 }
 
+function isUnit(entity: Structure | Unit | Resource): entity is Unit {
+  return "baseSpeed" in entity && "speed" in entity;
+}
+
 export async function drawEntityIcon(
   ctx: CanvasRenderingContext2D,
-  entity: Structure | Unit,
+  entity: Structure | Unit | Resource,
   position: Point,
   options?: { size?: number }
 ): Promise<void> {
   const size = options?.size ?? 80;
   const iconName = resolveIconName(entity);
 
-  const cached = iconImageCache.get(iconName);
+  // Use light green for units, white for others
+  const color = isUnit(entity) ? "#90EE90" : "white";
+  const cacheKey = `${iconName}-${color}`;
+
+  const cached = iconImageCache.get(cacheKey);
 
   if (cached) {
     ctx.drawImage(cached, position.x - size / 2, position.y - size / 2, size, size);
@@ -85,7 +95,7 @@ export async function drawEntityIcon(
     return;
   }
 
-  const img = await buildIconImage(iconName);
+  const img = await buildIconImage(iconName, color);
 
   if (!img) return;
 

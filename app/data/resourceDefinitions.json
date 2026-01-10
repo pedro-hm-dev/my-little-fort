@@ -1,0 +1,67 @@
+{
+  "wood": {
+    "type": "wood",
+    "amountRange": [50, 100],
+    "iconName": "pine-tree",
+    "iconSize": 90,
+    "rarity": 1,
+    "gatherTime": 7,
+    "scatterRadius": 20,
+    "possibleTerrainTypes": ["land"]
+  },
+
+  "stone": {
+    "type": "stone",
+    "amountRange": [30, 80],
+    "iconName": "stone-pile",
+    "iconSize": 50,
+    "rarity": 1,
+    "gatherTime": 10,
+    "scatterRadius": 15,
+    "possibleTerrainTypes": ["land", "water"]
+  },
+
+  "metal": {
+    "type": "metal",
+    "amountRange": [20, 60],
+    "iconName": "minerals",
+    "iconSize": 40,
+    "rarity": 2,
+    "gatherTime": 10,
+    "scatterRadius": 10,
+    "possibleTerrainTypes": ["land", "water"]
+  },
+
+  "gold": {
+    "type": "gold",
+    "amountRange": [10, 40],
+    "iconName": "gold-nuggets",
+    "iconSize": 35,
+    "rarity": 10,
+    "gatherTime": 12,
+    "scatterRadius": 100,
+    "possibleTerrainTypes": ["land", "water"]
+  },
+
+  "algae": {
+    "type": "food",
+    "amountRange": [10, 25],
+    "iconName": "algae",
+    "iconSize": 30,
+    "rarity": 2,
+    "gatherTime": 5,
+    "scatterRadius": 25,
+    "possibleTerrainTypes": ["water"]
+  },
+
+  "mushrooms": {
+    "type": "food",
+    "amountRange": [15, 35],
+    "iconName": "mushrooms",
+    "iconSize": 40,
+    "rarity": 3,
+    "gatherTime": 4,
+    "scatterRadius": 30,
+    "possibleTerrainTypes": ["land"]
+  }
+}

@@ -3,6 +3,10 @@ import { defineStore } from "pinia";
 import { UnitType, type Unit } from "@/types/Unit";
 import unitDefs from "@/data/unitDefinitions.json";
 import { useStructureStore } from "./structures";
+import { useWorldStore } from "./world";
+import { useResourceStore } from "./resources";
+import { useInventoryStore } from "./inventory";
+import { isInWater } from "@/utils/geometry";
 
 const workerDef = unitDefs.worker;
 const soldierDef = unitDefs.soldier;
@@ -30,6 +34,10 @@ function createInitialState(): Unit[] {
       iconSize: workerDef.iconSize,
       baseSpeed: workerDef.baseSpeed,
       speed: workerDef.speed,
+      baseSwimSpeed: workerDef.baseSwimSpeed,
+      swimSpeed: workerDef.swimSpeed,
+      baseEfficiency: workerDef.baseEfficiency,
+      efficiency: workerDef.efficiency,
     },
     {
       id: "worker-2",
@@ -42,6 +50,10 @@ function createInitialState(): Unit[] {
       iconSize: workerDef.iconSize,
       baseSpeed: workerDef.baseSpeed,
       speed: workerDef.speed,
+      baseSwimSpeed: workerDef.baseSwimSpeed,
+      swimSpeed: workerDef.swimSpeed,
+      baseEfficiency: workerDef.baseEfficiency,
+      efficiency: workerDef.efficiency,
     },
     {
       id: "worker-3",
@@ -54,6 +66,10 @@ function createInitialState(): Unit[] {
       iconSize: workerDef.iconSize,
       baseSpeed: workerDef.baseSpeed,
       speed: workerDef.speed,
+      baseSwimSpeed: workerDef.baseSwimSpeed,
+      swimSpeed: workerDef.swimSpeed,
+      baseEfficiency: workerDef.baseEfficiency,
+      efficiency: workerDef.efficiency,
     },
     {
       id: "worker-4",
@@ -66,6 +82,10 @@ function createInitialState(): Unit[] {
       iconSize: workerDef.iconSize,
       baseSpeed: workerDef.baseSpeed,
       speed: workerDef.speed,
+      baseSwimSpeed: workerDef.baseSwimSpeed,
+      swimSpeed: workerDef.swimSpeed,
+      baseEfficiency: workerDef.baseEfficiency,
+      efficiency: workerDef.efficiency,
     },
     {
       id: "soldier-1",
@@ -78,6 +98,10 @@ function createInitialState(): Unit[] {
       iconSize: soldierDef.iconSize,
       baseSpeed: soldierDef.baseSpeed,
       speed: soldierDef.speed,
+      baseSwimSpeed: soldierDef.baseSwimSpeed,
+      swimSpeed: soldierDef.swimSpeed,
+      baseEfficiency: soldierDef.baseEfficiency,
+      efficiency: soldierDef.efficiency,
     },
   ];
 }
@@ -86,6 +110,7 @@ let initialState: Unit[] = [];
 
 export const useUnitStore = defineStore("units", () => {
   const units = ref<Map<string, Unit>>(new Map());
+  const worldStore = useWorldStore();
 
   const allUnits = computed(() => Array.from(units.value.values()));
 
@@ -119,7 +144,12 @@ export const useUnitStore = defineStore("units", () => {
       const unit = units.value.get(id);
 
       if (unit) {
-        units.value.set(id, { ...unit, targetPosition: { x: targetX, y: targetY } });
+        units.value.set(id, {
+          ...unit,
+          targetPosition: { x: targetX, y: targetY },
+          targetResource: undefined,
+          gatherProgress: undefined,
+        });
       }
     } else {
       // Multiple units: scatter randomly around target
@@ -141,6 +171,57 @@ export const useUnitStore = defineStore("units", () => {
               x: targetX + offsetX,
               y: targetY + offsetY,
             },
+            targetResource: undefined,
+            gatherProgress: undefined,
+          });
+        }
+      });
+    }
+  }
+
+  function gatherResource(unitIds: string[], resourceId: string) {
+    const resourceStore = useResourceStore();
+    const resource = resourceStore.getResource(resourceId);
+
+    if (!resource) return;
+
+    // Send units to resource position
+    if (unitIds.length === 1) {
+      const id = unitIds[0];
+
+      if (!id) return;
+
+      const unit = units.value.get(id);
+
+      if (unit) {
+        units.value.set(id, {
+          ...unit,
+          targetPosition: { x: resource.position.x, y: resource.position.y },
+          targetResource: resourceId,
+          gatherProgress: 0,
+        });
+      }
+    } else {
+      // Multiple units: scatter around resource
+      const scatterRadius = 40;
+
+      unitIds.forEach((id) => {
+        const unit = units.value.get(id);
+
+        if (unit) {
+          const angle = Math.random() * Math.PI * 2;
+          const distance = Math.random() * scatterRadius;
+          const offsetX = Math.cos(angle) * distance;
+          const offsetY = Math.sin(angle) * distance;
+
+          units.value.set(id, {
+            ...unit,
+            targetPosition: {
+              x: resource.position.x + offsetX,
+              y: resource.position.y + offsetY,
+            },
+            targetResource: resourceId,
+            gatherProgress: 0,
           });
         }
       });
@@ -148,7 +229,70 @@ export const useUnitStore = defineStore("units", () => {
   }
 
   function updateUnitPositions() {
+    const resourceStore = useResourceStore();
+    const inventoryStore = useInventoryStore();
+
     for (const unit of units.value.values()) {
+      // If unit is gathering a resource
+      if (unit.targetResource) {
+        const resource = resourceStore.getResource(unit.targetResource);
+
+        // If resource no longer exists, stop gathering
+        if (!resource) {
+          units.value.set(unit.id, {
+            ...unit,
+            targetResource: undefined,
+            targetPosition: undefined,
+            gatherProgress: undefined,
+          });
+          continue;
+        }
+
+        // Check if unit is at the resource location
+        const dx = resource.position.x - unit.position.x;
+        const dy = resource.position.y - unit.position.y;
+        const distToResource = Math.sqrt(dx * dx + dy * dy);
+
+        if (distToResource < 50) {
+          // Unit is close enough to gather
+          const gatherRate = unit.efficiency / resource.gatherTime; // amount per frame
+          const newProgress = (unit.gatherProgress || 0) + gatherRate;
+
+          if (newProgress >= 1) {
+            // Completed gathering 1 unit
+            const depleted = resourceStore.depleteResource(unit.targetResource, 1);
+
+            // Add resource to inventory
+            inventoryStore.addResource(resource.type, 1);
+
+            if (depleted) {
+              // Resource fully depleted
+              units.value.set(unit.id, {
+                ...unit,
+                targetResource: undefined,
+                targetPosition: undefined,
+                gatherProgress: undefined,
+              });
+            } else {
+              // Continue gathering
+              units.value.set(unit.id, {
+                ...unit,
+                gatherProgress: 0, // Reset progress for next unit
+              });
+            }
+          } else {
+            // Update progress
+            units.value.set(unit.id, {
+              ...unit,
+              gatherProgress: newProgress,
+            });
+          }
+
+          continue;
+        }
+      }
+
+      // Regular movement
       if (!unit.targetPosition) continue;
 
       const dx = unit.targetPosition.x - unit.position.x;
@@ -159,11 +303,17 @@ export const useUnitStore = defineStore("units", () => {
         // Reached target
         unit.position.x = unit.targetPosition.x;
         unit.position.y = unit.targetPosition.y;
-        unit.targetPosition = undefined;
+
+        // Only clear targetPosition if not gathering
+        if (!unit.targetResource) {
+          unit.targetPosition = undefined;
+        }
       } else {
         // Move towards target
-        const moveX = (dx / distance) * unit.speed;
-        const moveY = (dy / distance) * unit.speed;
+        const inLake = isInWater(unit.position.x, unit.position.y, worldStore.allLakes);
+        const effSpeed = inLake ? unit.swimSpeed : unit.speed;
+        const moveX = (dx / distance) * effSpeed;
+        const moveY = (dy / distance) * effSpeed;
         unit.position.x += moveX;
         unit.position.y += moveY;
       }
@@ -187,6 +337,7 @@ export const useUnitStore = defineStore("units", () => {
     getUnit,
     updateUnit,
     moveUnitsTo,
+    gatherResource,
     updateUnitPositions,
     initialize,
   };

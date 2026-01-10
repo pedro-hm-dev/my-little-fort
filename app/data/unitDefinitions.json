@@ -6,7 +6,11 @@
     "iconBaseSize": 45,
     "iconSize": 45,
     "baseSpeed": 2.5,
-    "speed": 2.5
+    "speed": 2.5,
+    "baseSwimSpeed": 1.5,
+    "swimSpeed": 1.5,
+    "baseEfficiency": 1.0,
+    "efficiency": 1.0
   },
 
   "soldier": {
@@ -16,6 +20,10 @@
     "iconBaseSize": 45,
     "iconSize": 45,
     "baseSpeed": 3.0,
-    "speed": 3.0
+    "speed": 3.0,
+    "baseSwimSpeed": 2.0,
+    "swimSpeed": 2.0,
+    "baseEfficiency": 0.7,
+    "efficiency": 0.7
   }
 }
