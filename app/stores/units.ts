@@ -1,4 +1,4 @@
-import { ref, computed } from "vue";
+import { ref, computed, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import { UnitType, type Unit } from "@/types/Unit";
 import unitDefs from "@/data/unitDefinitions.json";
@@ -6,7 +6,11 @@ import { useStructureStore } from "./structures";
 import { useWorldStore } from "./world";
 import { useResourceStore } from "./resources";
 import { useInventoryStore } from "./inventory";
-import { isInWater } from "@/utils/geometry";
+import { isInWater, distance } from "@/utils/geometry";
+
+// Frame timing for smooth movement
+let lastUpdateTime = 0;
+const TARGET_FRAME_TIME = 1000 / 60; // 60 FPS target
 
 const workerDef = unitDefs.worker;
 const soldierDef = unitDefs.soldier;
@@ -232,6 +236,15 @@ export const useUnitStore = defineStore("units", () => {
     const resourceStore = useResourceStore();
     const inventoryStore = useInventoryStore();
 
+    // Calculate delta time for frame-rate independence
+    const currentTime = performance.now();
+    const deltaTime = lastUpdateTime === 0 ? TARGET_FRAME_TIME : currentTime - lastUpdateTime;
+    lastUpdateTime = currentTime;
+    const deltaMultiplier = deltaTime / TARGET_FRAME_TIME;
+
+    // Cache lakes reference for this frame
+    const lakesCache = worldStore.allLakes;
+
     for (const unit of units.value.values()) {
       // If unit is gathering a resource
       if (unit.targetResource) {
@@ -248,14 +261,15 @@ export const useUnitStore = defineStore("units", () => {
           continue;
         }
 
-        // Check if unit is at the resource location
+        // Check if unit is at the resource location (use faster squared distance)
         const dx = resource.position.x - unit.position.x;
         const dy = resource.position.y - unit.position.y;
-        const distToResource = Math.sqrt(dx * dx + dy * dy);
+        const distSq = dx * dx + dy * dy;
+        const gatherRadiusSq = 50 * 50;
 
-        if (distToResource < 50) {
-          // Unit is close enough to gather
-          const gatherRate = unit.efficiency / resource.gatherTime; // amount per frame
+        if (distSq < gatherRadiusSq) {
+          // Unit is close enough to gather (frame-rate independent)
+          const gatherRate = (unit.efficiency / resource.gatherTime) * deltaMultiplier;
           const newProgress = (unit.gatherProgress || 0) + gatherRate;
 
           if (newProgress >= 1) {
@@ -297,9 +311,9 @@ export const useUnitStore = defineStore("units", () => {
 
       const dx = unit.targetPosition.x - unit.position.x;
       const dy = unit.targetPosition.y - unit.position.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      const dist = Math.sqrt(dx * dx + dy * dy);
 
-      if (distance < 2) {
+      if (dist < 2) {
         // Reached target
         unit.position.x = unit.targetPosition.x;
         unit.position.y = unit.targetPosition.y;
@@ -309,11 +323,12 @@ export const useUnitStore = defineStore("units", () => {
           unit.targetPosition = undefined;
         }
       } else {
-        // Move towards target
-        const inLake = isInWater(unit.position.x, unit.position.y, worldStore.allLakes);
+        // Move towards target (frame-rate independent)
+        const inLake = isInWater(unit.position.x, unit.position.y, lakesCache);
         const effSpeed = inLake ? unit.swimSpeed : unit.speed;
-        const moveX = (dx / distance) * effSpeed;
-        const moveY = (dy / distance) * effSpeed;
+        const frameSpeed = effSpeed * deltaMultiplier;
+        const moveX = (dx / dist) * frameSpeed;
+        const moveY = (dy / dist) * frameSpeed;
         unit.position.x += moveX;
         unit.position.y += moveY;
       }

@@ -15,16 +15,25 @@
 
       <div>Pan: {{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</div>
 
+      <div>Seed: {{ worldStore.worldSeed }}</div>
+
       <button
         @click="
           camera.centerOn(
             structureStore.getStructure('fort-1')?.position.x ?? 0,
-            structureStore.getStructure('fort-1')?.position.y ?? 0
+            structureStore.getStructure('fort-1')?.position.y ?? 0,
           )
         "
-        class="mt-2 px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-white text-xs"
+        class="mt-2 px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-white text-xs w-full"
       >
         Center on Fort
+      </button>
+
+      <button
+        @click="regenerateWorld"
+        class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 rounded text-white text-xs w-full"
+      >
+        New World
       </button>
     </div>
 
@@ -69,6 +78,26 @@ const resourcePanelOpen = ref(false);
 
 function toggleResourcePanel() {
   resourcePanelOpen.value = !resourcePanelOpen.value;
+}
+
+function regenerateWorld() {
+  // Generate new seed
+  const newSeed = Date.now();
+
+  // Reinitialize world with new seed
+  worldStore.regenerate(newSeed);
+  structureStore.initialize();
+
+  const fortPos = structureStore.fortPosition;
+  if (fortPos) {
+    resourceStore.initialize(fortPos);
+    // Center camera on new fort position
+    camera.centerOn(fortPos.x, fortPos.y);
+  }
+
+  unitStore.initialize();
+  inventoryStore.clear();
+  selectionStore.deselectAll();
 }
 
 interface PingEffect {
@@ -262,15 +291,28 @@ const drawMapBounds = () => {
 const drawTerrain = () => {
   if (!ctx) return;
 
-  // Draw lakes (rounded polygons)
+  // Draw lakes with improved visual style
   for (const lake of worldStore.allLakes) {
     const outline = lake.outline;
 
     if (!outline || outline.length < 3) continue;
 
-    ctx.fillStyle = "rgba(30, 144, 255, 0.35)"; // Blue with transparency
-    ctx.strokeStyle = "#1e90ff";
-    ctx.lineWidth = 2 / camera.zoom;
+    // Create gradient for depth effect
+    const gradient = ctx.createRadialGradient(
+      lake.center.x,
+      lake.center.y,
+      0,
+      lake.center.x,
+      lake.center.y,
+      lake.radius,
+    );
+    gradient.addColorStop(0, "rgba(30, 100, 180, 0.5)"); // Deeper center
+    gradient.addColorStop(0.7, "rgba(50, 140, 220, 0.4)");
+    gradient.addColorStop(1, "rgba(70, 180, 255, 0.3)"); // Lighter edges
+
+    ctx.fillStyle = gradient;
+    ctx.strokeStyle = "rgba(100, 180, 255, 0.6)";
+    ctx.lineWidth = 3 / camera.zoom;
     ctx.beginPath();
 
     const first = outline[0];
@@ -287,6 +329,11 @@ const drawTerrain = () => {
 
     ctx.closePath();
     ctx.fill();
+    ctx.stroke();
+
+    // Add subtle inner glow
+    ctx.strokeStyle = "rgba(150, 200, 255, 0.2)";
+    ctx.lineWidth = 8 / camera.zoom;
     ctx.stroke();
   }
 };

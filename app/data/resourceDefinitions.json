@@ -7,7 +7,13 @@
     "rarity": 1,
     "gatherTime": 7,
     "scatterRadius": 20,
-    "possibleTerrainTypes": ["land"]
+    "possibleTerrainTypes": ["land"],
+    "spawning": {
+      "mode": "cluster",
+      "clusterSize": [3, 8],
+      "clusterRadius": 120,
+      "clusterChance": 0.7
+    }
   },
 
   "stone": {
@@ -18,7 +24,14 @@
     "rarity": 1,
     "gatherTime": 10,
     "scatterRadius": 15,
-    "possibleTerrainTypes": ["land", "water"]
+    "possibleTerrainTypes": ["land", "water"],
+    "spawning": {
+      "mode": "shore",
+      "shoreDistance": [20, 100],
+      "shoreChance": 0.5,
+      "clusterChance": 0.3,
+      "clusterRadius": 60
+    }
   },
 
   "metal": {
@@ -29,7 +42,14 @@
     "rarity": 2,
     "gatherTime": 10,
     "scatterRadius": 10,
-    "possibleTerrainTypes": ["land", "water"]
+    "possibleTerrainTypes": ["land", "water"],
+    "spawning": {
+      "mode": "shore",
+      "shoreDistance": [15, 80],
+      "shoreChance": 0.6,
+      "clusterChance": 0.4,
+      "clusterRadius": 50
+    }
   },
 
   "gold": {
@@ -40,7 +60,12 @@
     "rarity": 10,
     "gatherTime": 12,
     "scatterRadius": 100,
-    "possibleTerrainTypes": ["land", "water"]
+    "possibleTerrainTypes": ["land", "water"],
+    "spawning": {
+      "mode": "random",
+      "clusterChance": 0.2,
+      "clusterRadius": 40
+    }
   },
 
   "algae": {
@@ -51,7 +76,12 @@
     "rarity": 2,
     "gatherTime": 5,
     "scatterRadius": 25,
-    "possibleTerrainTypes": ["water"]
+    "possibleTerrainTypes": ["water"],
+    "spawning": {
+      "mode": "random",
+      "clusterChance": 0.5,
+      "clusterRadius": 60
+    }
   },
 
   "mushrooms": {
@@ -62,6 +92,12 @@
     "rarity": 3,
     "gatherTime": 4,
     "scatterRadius": 30,
-    "possibleTerrainTypes": ["land"]
+    "possibleTerrainTypes": ["land"],
+    "spawning": {
+      "mode": "cluster",
+      "clusterSize": [2, 5],
+      "clusterRadius": 80,
+      "clusterChance": 0.6
+    }
   }
 }

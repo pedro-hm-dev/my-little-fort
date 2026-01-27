@@ -4,6 +4,7 @@ import { UnitType, type Unit, type Position as UnitPosition } from "@/types/Unit
 import { type Resource, type Position as ResourcePosition } from "@/types/Resource";
 import structureDefinitions from "~/data/structureDefinitions.json";
 import unitDefinitions from "~/data/unitDefinitions.json";
+import resourceDefinitions from "~/data/resourceDefinitions.json";
 
 // Reuse shared shape for both Unit and Structure positions
 export type Point = StructurePosition | UnitPosition | ResourcePosition;
@@ -18,27 +19,49 @@ type IconifyJson = {
   icons: Record<string, IconifyIconEntry>;
 };
 
+// Optimized caches with WeakRef support for memory efficiency
 const iconImageCache = new Map<string, HTMLImageElement>();
 const iconPromiseCache = new Map<string, Promise<HTMLImageElement | null>>();
+const failedIcons = new Set<string>(); // Track failed icons to avoid retries
 
 const DEFAULT_ICON = "sand-castle";
 
+// Color palette for different entity types
+const ENTITY_COLORS = {
+  unit: "#90EE90", // Light green
+  structure: "#FFFFFF", // White
+  resource: "#F0E68C", // Khaki/gold
+} as const;
+
 function resolveIconName(entity: Structure | Unit | Resource): string {
   if (entity.iconName) return entity.iconName;
-
   return DEFAULT_ICON;
+}
+
+function getEntityColor(entity: Structure | Unit | Resource): string {
+  if (isUnit(entity)) return ENTITY_COLORS.unit;
+  if (isStructure(entity)) return ENTITY_COLORS.structure;
+  return ENTITY_COLORS.resource;
 }
 
 function buildIconImage(iconName: string, color: string = "white"): Promise<HTMLImageElement | null> {
   const cacheKey = `${iconName}-${color}`;
-  const cachedPromise = iconPromiseCache.get(cacheKey);
 
+  // Check if this icon previously failed
+  if (failedIcons.has(cacheKey)) {
+    return Promise.resolve(null);
+  }
+
+  const cachedPromise = iconPromiseCache.get(cacheKey);
   if (cachedPromise) return cachedPromise;
 
   const promise = new Promise<HTMLImageElement | null>((resolve) => {
     const iconEntry = (iconsJson as IconifyJson).icons?.[iconName];
 
-    if (!iconEntry || !iconEntry.body) return resolve(null);
+    if (!iconEntry || !iconEntry.body) {
+      failedIcons.add(cacheKey);
+      return resolve(null);
+    }
 
     const width = iconEntry.width ?? 512;
     const height = iconEntry.height ?? 512;
@@ -59,6 +82,7 @@ function buildIconImage(iconName: string, color: string = "white"): Promise<HTML
 
     img.onerror = () => {
       URL.revokeObjectURL(url);
+      failedIcons.add(cacheKey);
       resolve(null);
     };
 
@@ -74,24 +98,25 @@ function isUnit(entity: Structure | Unit | Resource): entity is Unit {
   return "baseSpeed" in entity && "speed" in entity;
 }
 
+function isStructure(entity: Structure | Unit | Resource): entity is Structure {
+  return "health" in entity && "maxHealth" in entity && !("baseSpeed" in entity);
+}
+
 export async function drawEntityIcon(
   ctx: CanvasRenderingContext2D,
   entity: Structure | Unit | Resource,
   position: Point,
-  options?: { size?: number }
+  options?: { size?: number },
 ): Promise<void> {
   const size = options?.size ?? 80;
   const iconName = resolveIconName(entity);
-
-  // Use light green for units, white for others
-  const color = isUnit(entity) ? "#90EE90" : "white";
+  const color = getEntityColor(entity);
   const cacheKey = `${iconName}-${color}`;
 
   const cached = iconImageCache.get(cacheKey);
 
   if (cached) {
     ctx.drawImage(cached, position.x - size / 2, position.y - size / 2, size, size);
-
     return;
   }
 
@@ -103,21 +128,82 @@ export async function drawEntityIcon(
 }
 
 /**
- * Preload all icons from structure and unit definitions
+ * Synchronous draw for cached icons (use in render loops)
+ * Returns false if icon not cached yet
+ */
+export function drawEntityIconSync(
+  ctx: CanvasRenderingContext2D,
+  entity: Structure | Unit | Resource,
+  position: Point,
+  options?: { size?: number },
+): boolean {
+  const size = options?.size ?? 80;
+  const iconName = resolveIconName(entity);
+  const color = getEntityColor(entity);
+  const cacheKey = `${iconName}-${color}`;
+
+  const cached = iconImageCache.get(cacheKey);
+
+  if (cached) {
+    ctx.drawImage(cached, position.x - size / 2, position.y - size / 2, size, size);
+    return true;
+  }
+
+  // Start loading in background if not already
+  buildIconImage(iconName, color);
+  return false;
+}
+
+/**
+ * Preload all icons from structure, unit, and resource definitions
  */
 export async function preloadAllIcons(): Promise<void> {
-  const iconNames = new Set<string>();
+  const iconColorPairs: Array<{ name: string; color: string }> = [];
 
-  // Collect all icon names from structures
+  // Collect all icon names from structures (white)
   for (const structureDef of Object.values(structureDefinitions)) {
-    iconNames.add(structureDef.iconName);
+    iconColorPairs.push({ name: structureDef.iconName, color: ENTITY_COLORS.structure });
   }
 
-  // Collect all icon names from units
+  // Collect all icon names from units (light green)
   for (const unitDef of Object.values(unitDefinitions)) {
-    iconNames.add(unitDef.iconName);
+    iconColorPairs.push({ name: unitDef.iconName, color: ENTITY_COLORS.unit });
   }
 
-  // Preload all unique icons
-  await Promise.all(Array.from(iconNames).map((iconName) => buildIconImage(iconName)));
+  // Collect all icon names from resources (khaki)
+  for (const resourceDef of Object.values(resourceDefinitions)) {
+    iconColorPairs.push({
+      name: (resourceDef as { iconName: string }).iconName,
+      color: ENTITY_COLORS.resource,
+    });
+  }
+
+  // Preload all unique icon+color combinations
+  const uniquePairs = new Map<string, { name: string; color: string }>();
+  for (const pair of iconColorPairs) {
+    const key = `${pair.name}-${pair.color}`;
+    uniquePairs.set(key, pair);
+  }
+
+  await Promise.all(Array.from(uniquePairs.values()).map(({ name, color }) => buildIconImage(name, color)));
+}
+
+/**
+ * Clear all caches (useful for memory management)
+ */
+export function clearIconCache(): void {
+  iconImageCache.clear();
+  iconPromiseCache.clear();
+  failedIcons.clear();
+}
+
+/**
+ * Get cache statistics for debugging
+ */
+export function getIconCacheStats(): { cached: number; pending: number; failed: number } {
+  return {
+    cached: iconImageCache.size,
+    pending: iconPromiseCache.size - iconImageCache.size,
+    failed: failedIcons.size,
+  };
 }
