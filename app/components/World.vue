@@ -37,6 +37,12 @@
       </button>
     </div>
 
+    <!-- Clock — top center -->
+    <div class="absolute top-4 left-1/2 -translate-x-1/2 z-50">
+      <GameClock />
+    </div>
+
+    <!-- Inventory button — top right -->
     <div class="absolute top-4 right-4 z-50">
       <UButton
         icon="i-heroicons-cube"
@@ -46,14 +52,14 @@
         class="shadow-lg"
       />
     </div>
-
-    <ResourcePanel :model-value="resourcePanelOpen" @update:model-value="resourcePanelOpen = $event" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { LazyResourcePanel } from "#components";
 import { drawEntityIcon, preloadAllIcons } from "@/utils/iconRenderer";
 import { useCameraStore } from "@/stores/camera";
+import { useTimeStore } from "@/stores/time";
 import { useInventoryStore } from "@/stores/inventory";
 import { useWorldStore } from "@/stores/world";
 import { useStructureStore } from "@/stores/structures";
@@ -68,16 +74,19 @@ const resourceStore = useResourceStore();
 const unitStore = useUnitStore();
 const selectionStore = useSelectionStore();
 const inventoryStore = useInventoryStore();
+const timeStore = useTimeStore();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let ctx: CanvasRenderingContext2D | null = null;
 
 let animationFrameId: number | null = null;
+let lastFrameTime = 0;
 
-const resourcePanelOpen = ref(false);
+const overlay = useOverlay();
+const resourcePanelOverlay = overlay.create(LazyResourcePanel);
 
 function toggleResourcePanel() {
-  resourcePanelOpen.value = !resourcePanelOpen.value;
+  resourcePanelOverlay.open();
 }
 
 function regenerateWorld() {
@@ -142,7 +151,7 @@ onMounted(async () => {
 
   camera.centerOn(camera.mapWidth / 2, camera.mapHeight / 2);
 
-  gameLoop();
+  animationFrameId = requestAnimationFrame(gameLoop);
 });
 
 const resizeCanvas = () => {
@@ -152,9 +161,16 @@ const resizeCanvas = () => {
   canvasRef.value.height = window.innerHeight;
 };
 
-const gameLoop = () => {
+const gameLoop = (timestamp: number) => {
+  const deltaMs = lastFrameTime > 0 ? Math.min(timestamp - lastFrameTime, 100) : 16;
+  lastFrameTime = timestamp;
+
+  // gameDeltaMs is 0 when paused, deltaMs*speed otherwise — freezes all simulation
+  const gameDeltaMs = timeStore.gameDelta(deltaMs);
+
+  timeStore.tick(deltaMs);
   camera.updateMovement();
-  unitStore.updateUnitPositions();
+  unitStore.updateUnitPositions(gameDeltaMs);
 
   render();
 
