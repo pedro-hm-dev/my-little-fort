@@ -1,6 +1,8 @@
 {
   "worker": {
     "type": "worker",
+    "label": "Trabalhador",
+    "description": "Coleta todos os tipos de recursos do mapa com eficiência básica.",
     "maxHealth": 50,
     "iconName": "roman-toga",
     "iconBaseSize": 45,
@@ -10,11 +12,15 @@
     "baseSwimSpeed": 1.5,
     "swimSpeed": 1.5,
     "baseEfficiency": 1.0,
-    "efficiency": 1.0
+    "efficiency": 1.0,
+    "foodPerDay": 1,
+    "reproductionTimeHours": 2
   },
 
   "soldier": {
     "type": "soldier",
+    "label": "Soldado",
+    "description": "Unidade de combate resistente para defesa do forte.",
     "maxHealth": 100,
     "iconName": "swordman",
     "iconBaseSize": 45,
@@ -24,6 +30,62 @@
     "baseSwimSpeed": 2.0,
     "swimSpeed": 2.0,
     "baseEfficiency": 0.7,
-    "efficiency": 0.7
+    "efficiency": 0.7,
+    "foodPerDay": 2,
+    "reproductionTimeHours": 8
+  },
+
+  "archer": {
+    "type": "archer",
+    "label": "Arqueiro",
+    "description": "Ágil e preciso. Rápido no mapa, coleta moderada.",
+    "maxHealth": 60,
+    "iconName": "bowman",
+    "iconBaseSize": 45,
+    "iconSize": 45,
+    "baseSpeed": 3.5,
+    "speed": 3.5,
+    "baseSwimSpeed": 2.5,
+    "swimSpeed": 2.5,
+    "baseEfficiency": 0.6,
+    "efficiency": 0.6,
+    "foodPerDay": 1,
+    "reproductionTimeHours": 5
+  },
+
+  "hunter": {
+    "type": "hunter",
+    "label": "Caçador",
+    "description": "Especialista em comida. Eficaz tanto em terra quanto na água.",
+    "maxHealth": 70,
+    "iconName": "hunter-eyes",
+    "iconBaseSize": 45,
+    "iconSize": 45,
+    "baseSpeed": 3.0,
+    "speed": 3.0,
+    "baseSwimSpeed": 2.5,
+    "swimSpeed": 2.5,
+    "baseEfficiency": 1.5,
+    "efficiency": 1.5,
+    "foodPerDay": 1,
+    "reproductionTimeHours": 3
+  },
+
+  "miner": {
+    "type": "miner",
+    "label": "Minerador",
+    "description": "Extrai pedra e metal com alta eficiência. Deve ser reproduzido no forte.",
+    "maxHealth": 80,
+    "iconName": "miner",
+    "iconBaseSize": 45,
+    "iconSize": 45,
+    "baseSpeed": 2.0,
+    "speed": 2.0,
+    "baseSwimSpeed": 1.0,
+    "swimSpeed": 1.0,
+    "baseEfficiency": 1.8,
+    "efficiency": 1.8,
+    "foodPerDay": 2,
+    "reproductionTimeHours": 10
   }
 }

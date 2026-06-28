@@ -1,8 +1,12 @@
 {
   "fort": {
     "type": "fort",
+    "label": "Forte",
+    "description": "Centro da civilização. Unidades se reproduzem e curam aqui.",
     "maxHealth": 500,
     "iconName": "sand-castle",
-    "iconSize": 200
+    "iconSize": 200,
+    "tabs": ["units"],
+    "canReproduce": ["worker", "soldier", "archer", "hunter", "miner"]
   }
 }

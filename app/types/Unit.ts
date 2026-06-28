@@ -3,8 +3,8 @@ export interface Unit {
   type: UnitType;
   position: Position;
   targetPosition?: Position;
-  targetResource?: string; // ID do recurso sendo coletado
-  gatherProgress?: number; // Progresso atual da coleta (0-1)
+  targetResource?: string;
+  gatherProgress?: number;
   health: number;
   maxHealth: number;
   iconName: string;
@@ -16,11 +16,20 @@ export interface Unit {
   swimSpeed: number;
   efficiency: number;
   baseEfficiency: number;
+  foodPerDay: number;
+  reproductionTimeHours: number;
+  // Fort state
+  insideFortId?: string;
+  reproductionProgress?: number;
+  reproductionTargetType?: UnitType;
 }
 
 export enum UnitType {
   Worker = "worker",
   Soldier = "soldier",
+  Archer = "archer",
+  Hunter = "hunter",
+  Miner = "miner",
 }
 
 export interface Position {

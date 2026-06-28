@@ -59,6 +59,12 @@ export const useTimeStore = defineStore("time", () => {
     speed.value = s;
   }
 
+  function reset() {
+    timeOfDay.value = 0.33;
+    day.value = 1;
+    speed.value = 1;
+  }
+
   /**
    * Returns the scaled game-time delta for a real `deltaMs`.
    * Returns 0 when paused so all simulation systems simply freeze.
@@ -80,5 +86,6 @@ export const useTimeStore = defineStore("time", () => {
     tick,
     setSpeed,
     gameDelta,
+    reset,
   };
 });

@@ -25,6 +25,10 @@ export const useSelectionStore = defineStore("selection", () => {
     selectedUnitIds.value.clear();
   }
 
+  function deselectUnit(unitId: string) {
+    selectedUnitIds.value.delete(unitId);
+  }
+
   function isSelected(unitId: string): boolean {
     return selectedUnitIds.value.has(unitId);
   }
@@ -68,6 +72,7 @@ export const useSelectionStore = defineStore("selection", () => {
     selectUnit,
     selectUnits,
     deselectAll,
+    deselectUnit,
     isSelected,
     startSelection,
     updateSelection,

@@ -2,71 +2,72 @@
   <USlideover
     :close="{ onClick: () => emit('close') }"
     :ui="{
-      content: 'bg-slate-900',
-      header: 'border-b border-slate-700/50 bg-slate-900',
-      body: 'bg-slate-900 p-0',
-      footer: 'border-t border-slate-700/50 bg-slate-900',
-      title: 'text-white font-bold',
-      description: 'text-slate-400 text-sm mt-0.5',
-      close: 'top-4 end-4 text-slate-400 hover:text-white',
+      content: 'bg-black',
+      header: 'border-b border-green-500/20 bg-black',
+      body: 'bg-black p-0',
+      footer: 'border-t border-green-500/20 bg-black',
+      title: 'text-green-300 font-mono font-bold tracking-wider',
+      description: 'text-green-800 text-sm mt-0.5 font-mono',
+      close: 'top-4 end-4 text-green-800 hover:text-green-300',
     }"
   >
     <template #title>
       <div class="flex items-center gap-2.5">
-        <div
-          class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15 ring-1 ring-inset ring-emerald-500/30"
-        >
-          <UIcon name="i-heroicons-cube" class="size-4 text-emerald-400" />
+        <div class="flex h-8 w-8 items-center justify-center border border-green-500/30 bg-green-500/10">
+          <UIcon name="i-game-icons-open-chest" class="size-4 text-green-400" />
         </div>
-        <span>Recursos Coletados</span>
+        <span>INVENTÁRIO</span>
       </div>
     </template>
 
     <template #description>
-      <span class="font-semibold text-emerald-400">{{ inventoryStore.totalResources }}</span>
-      unidades no inventário
+      <span class="font-mono text-green-400">{{ inventoryStore.totalResources }}</span>
+      <span class="text-green-800"> unidades</span>
     </template>
 
     <template #body>
-      <div class="px-5 py-4 space-y-2.5">
+      <div class="px-4 py-4 space-y-1.5 font-mono">
         <!-- empty state -->
         <div
           v-if="sortedInventory.length === 0"
           class="flex flex-col items-center justify-center py-16 space-y-3 text-center"
         >
-          <div class="text-6xl opacity-20 select-none">📦</div>
-          <p class="text-slate-300 text-sm font-semibold">Inventário vazio</p>
-          <p class="text-slate-500 text-xs leading-relaxed max-w-52">
+          <UIcon name="i-game-icons-chest" class="size-14 text-green-900 opacity-60" />
+          <p class="text-green-600 text-xs font-mono tracking-widest uppercase">Inventário vazio</p>
+          <p class="text-green-900 text-xs leading-relaxed max-w-52 font-mono">
             Clique com o botão direito em recursos no mapa para coletar
           </p>
         </div>
 
-        <!-- resource cards -->
+        <!-- resource rows -->
         <div
           v-for="item in sortedInventory"
           :key="item.type"
-          class="flex items-center gap-3.5 p-3.5 rounded-xl border transition-colors duration-150 cursor-default select-none"
+          class="flex items-center gap-3 p-3 border transition-colors duration-150 cursor-default select-none"
           :style="{
-            backgroundColor: getResourceColor(item.type) + '0d',
-            borderColor: getResourceColor(item.type) + '33',
+            backgroundColor: getResourceColor(item.type) + '0a',
+            borderColor: getResourceColor(item.type) + '30',
           }"
         >
           <!-- icon -->
           <div
-            class="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-2xl"
-            :style="{ backgroundColor: getResourceColor(item.type) + '1a' }"
+            class="flex h-10 w-10 shrink-0 items-center justify-center border"
+            :style="{
+              borderColor: getResourceColor(item.type) + '40',
+              backgroundColor: getResourceColor(item.type) + '15',
+            }"
           >
-            {{ getResourceEmoji(item.type) }}
+            <UIcon :name="getResourceIcon(item.type)" class="size-6" :style="{ color: getResourceColor(item.type) }" />
           </div>
 
-          <!-- label + progress -->
+          <!-- label + bar -->
           <div class="flex-1 min-w-0 space-y-1.5">
-            <p class="text-sm font-semibold text-white leading-none">
+            <p class="text-xs font-mono uppercase tracking-widest leading-none" :style="{ color: getResourceColor(item.type) }">
               {{ getResourceName(item.type) }}
             </p>
-            <div class="h-1 w-full rounded-full bg-slate-700/60 overflow-hidden">
+            <div class="h-px w-full bg-green-950 overflow-hidden">
               <div
-                class="h-full rounded-full transition-all duration-500 ease-out"
+                class="h-full transition-all duration-500 ease-out"
                 :style="{
                   width: getRelativeWidth(item.amount) + '%',
                   backgroundColor: getResourceColor(item.type),
@@ -77,7 +78,7 @@
 
           <!-- amount -->
           <div
-            class="shrink-0 min-w-12 text-right text-xl font-bold tabular-nums leading-none"
+            class="shrink-0 min-w-10 text-right text-lg font-mono font-bold tabular-nums leading-none"
             :style="{ color: getResourceColor(item.type) }"
           >
             {{ item.amount }}
@@ -87,16 +88,16 @@
     </template>
 
     <template #footer>
-      <div class="flex items-center justify-between w-full">
-        <div class="flex items-center gap-2 text-slate-400">
-          <UIcon name="i-heroicons-archive-box" class="size-4" />
-          <span class="text-sm">Total coletado</span>
+      <div class="flex items-center justify-between w-full font-mono">
+        <div class="flex items-center gap-2 text-green-800">
+          <UIcon name="i-game-icons-open-chest" class="size-4" />
+          <span class="text-xs tracking-widest uppercase">Total</span>
         </div>
         <div class="flex items-baseline gap-1.5">
-          <span class="text-2xl font-bold text-white tabular-nums">
+          <span class="text-xl font-bold text-green-300 tabular-nums">
             {{ inventoryStore.totalResources }}
           </span>
-          <span class="text-xs text-slate-500 uppercase tracking-widest font-medium">un</span>
+          <span class="text-xs text-green-800 uppercase tracking-widest font-mono">un</span>
         </div>
       </div>
     </template>
@@ -127,12 +128,12 @@ const resourceNames: Record<ResourceType, string> = {
   [ResourceType.Gold]: "Ouro",
 };
 
-const resourceEmojis: Record<ResourceType, string> = {
-  [ResourceType.Food]: "🍞",
-  [ResourceType.Wood]: "🌲",
-  [ResourceType.Stone]: "🪨",
-  [ResourceType.Metal]: "⛏️",
-  [ResourceType.Gold]: "💰",
+const resourceIcons: Record<ResourceType, string> = {
+  [ResourceType.Food]: "i-game-icons-mushrooms",
+  [ResourceType.Wood]: "i-game-icons-pine-tree",
+  [ResourceType.Stone]: "i-game-icons-stone-pile",
+  [ResourceType.Metal]: "i-game-icons-minerals",
+  [ResourceType.Gold]: "i-game-icons-gold-nuggets",
 };
 
 const sortedInventory = computed(() =>
@@ -144,12 +145,12 @@ function getRelativeWidth(amount: number): number {
   return Math.round((amount / max) * 100);
 }
 
-function getResourceEmoji(type: ResourceType): string {
-  return resourceEmojis[type] ?? "📦";
+function getResourceIcon(type: ResourceType): string {
+  return resourceIcons[type] ?? "i-game-icons-chest";
 }
 
 function getResourceColor(type: ResourceType): string {
-  return resourceColors[type] ?? "#ffffff";
+  return resourceColors[type] ?? "#4ade80";
 }
 
 function getResourceName(type: ResourceType): string {

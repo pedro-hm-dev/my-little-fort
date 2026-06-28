@@ -10,30 +10,23 @@
       @contextmenu="handleContextMenu"
     />
 
-    <div class="absolute top-4 left-4 bg-slate-800/90 p-3 rounded text-xs font-mono text-slate-200 space-y-1">
-      <div>Zoom: {{ camera.zoom.toFixed(2) }}x</div>
-
-      <div>Pan: {{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</div>
-
-      <div>Seed: {{ worldStore.worldSeed }}</div>
+    <div class="absolute top-4 left-4 bg-black/75 backdrop-blur-sm p-3 border border-green-500/25 text-xs font-mono text-green-500 space-y-1">
+      <div class="text-green-800">ZOOM <span class="text-green-400">{{ camera.zoom.toFixed(2) }}x</span></div>
+      <div class="text-green-800">PAN  <span class="text-green-400">{{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</span></div>
+      <div class="text-green-800">SEED <span class="text-green-400">{{ worldStore.worldSeed }}</span></div>
 
       <button
-        @click="
-          camera.centerOn(
-            structureStore.getStructure('fort-1')?.position.x ?? 0,
-            structureStore.getStructure('fort-1')?.position.y ?? 0,
-          )
-        "
-        class="mt-2 px-2 py-1 bg-cyan-600 hover:bg-cyan-500 rounded text-white text-xs w-full"
+        @click="centerOnFort"
+        class="mt-2 px-2 py-1 border border-green-500/30 bg-green-900/20 hover:bg-green-900/40 hover:border-green-500/50 text-green-400 hover:text-green-200 text-xs w-full transition-colors"
       >
-        Center on Fort
+        &gt; FORT
       </button>
 
       <button
         @click="regenerateWorld"
-        class="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 rounded text-white text-xs w-full"
+        class="px-2 py-1 border border-green-500/30 bg-green-900/20 hover:bg-green-900/40 hover:border-green-500/50 text-green-400 hover:text-green-200 text-xs w-full transition-colors"
       >
-        New World
+        &gt; NEW WORLD
       </button>
     </div>
 
@@ -44,14 +37,36 @@
 
     <!-- Inventory button — top right -->
     <div class="absolute top-4 right-4 z-50">
-      <UButton
-        icon="i-heroicons-cube"
-        size="lg"
-        color="primary"
+      <button
         @click.stop="toggleResourcePanel"
-        class="shadow-lg"
-      />
+        class="p-2 border border-green-500/30 bg-black/70 backdrop-blur-sm text-green-500 hover:text-green-200 hover:border-green-400/50 hover:bg-green-900/20 transition-all"
+      >
+        <UIcon name="i-game-icons-open-chest" class="size-5" />
+      </button>
     </div>
+
+    <!-- Pending reproduction HUD -->
+    <Transition name="hud">
+      <div
+        v-if="unitStore.pendingReproduction"
+        class="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none"
+      >
+        <div class="flex items-center gap-3 px-5 py-3 border border-yellow-500/60 bg-black/90 font-mono text-sm backdrop-blur-sm">
+          <UIcon name="i-lucide-crosshair" class="size-4 text-yellow-400 shrink-0" />
+          <span class="text-yellow-300 uppercase tracking-widest">
+            Selecione um {{ pendingUnitLabel }} no mapa
+          </span>
+        </div>
+        <span class="text-xs font-mono text-yellow-700 tracking-widest uppercase">ESC para cancelar</span>
+      </div>
+    </Transition>
+
+    <!-- Structure panel (mounted once, shown on demand) -->
+    <StructurePanel
+      v-if="structurePanelOpen && selectedStructure"
+      :structure="selectedStructure"
+      @close="structurePanelOpen = false"
+    />
   </div>
 </template>
 
@@ -59,13 +74,18 @@
 import { LazyResourcePanel } from "#components";
 import { drawEntityIcon, preloadAllIcons } from "@/utils/iconRenderer";
 import { useCameraStore } from "@/stores/camera";
-import { useTimeStore } from "@/stores/time";
+import { useTimeStore, type TimeSpeed } from "@/stores/time";
 import { useInventoryStore } from "@/stores/inventory";
 import { useWorldStore } from "@/stores/world";
 import { useStructureStore } from "@/stores/structures";
 import { useResourceStore } from "@/stores/resources";
 import { useUnitStore } from "@/stores/units";
 import { useSelectionStore } from "@/stores/selection";
+import { UnitType } from "@/types/Unit";
+import { type Structure } from "@/types/Structure";
+import unitDefs from "@/data/unitDefinitions.json";
+
+type UnitDefKey = keyof typeof unitDefs;
 
 const camera = useCameraStore();
 const worldStore = useWorldStore();
@@ -85,28 +105,60 @@ let lastFrameTime = 0;
 const overlay = useOverlay();
 const resourcePanelOverlay = overlay.create(LazyResourcePanel);
 
+const structurePanelOpen = ref(false);
+const selectedStructure = ref<Structure | null>(null);
+
+let speedBeforePause: TimeSpeed = 1;
+
+const pendingUnitLabel = computed(() => {
+  const type = unitStore.pendingReproduction?.targetType;
+  if (!type) return "";
+  return (unitDefs[type as UnitDefKey] as { label: string })?.label ?? type;
+});
+
+watch(
+  () => unitStore.pendingReproduction,
+  (val) => {
+    if (val) {
+      speedBeforePause = timeStore.speed;
+      timeStore.setSpeed(0);
+      structurePanelOpen.value = false;
+    }
+  }
+);
+
 function toggleResourcePanel() {
   resourcePanelOverlay.open();
 }
 
-function regenerateWorld() {
-  // Generate new seed
-  const newSeed = Date.now();
+function openStructurePanel(structure: Structure) {
+  selectedStructure.value = structure;
+  structurePanelOpen.value = true;
+}
 
-  // Reinitialize world with new seed
+function centerOnFort() {
+  const fortPos = structureStore.fortPosition;
+  if (fortPos) camera.centerOn(fortPos.x, fortPos.y);
+}
+
+function regenerateWorld() {
+  const newSeed = Date.now();
   worldStore.regenerate(newSeed);
   structureStore.initialize();
 
   const fortPos = structureStore.fortPosition;
   if (fortPos) {
     resourceStore.initialize(fortPos);
-    // Center camera on new fort position
     camera.centerOn(fortPos.x, fortPos.y);
   }
 
   unitStore.initialize();
   inventoryStore.clear();
   selectionStore.deselectAll();
+  timeStore.reset();
+
+  structurePanelOpen.value = false;
+  selectedStructure.value = null;
 }
 
 interface PingEffect {
@@ -120,43 +172,37 @@ const pingEffect = ref<PingEffect | null>(null);
 
 onMounted(async () => {
   const canvas = canvasRef.value;
-
   if (!canvas) return;
 
   ctx = canvas.getContext("2d");
-
   if (!ctx) return;
 
-  // Preload all icons before initializing stores
   await preloadAllIcons();
 
-  // Initialize world terrain before entities
   worldStore.initialize();
   structureStore.initialize();
 
-  // Initialize resources after structures (needs fort position)
   const fortPos = structureStore.fortPosition;
-
   if (fortPos) {
     resourceStore.initialize(fortPos);
   }
 
   unitStore.initialize();
-
   resizeCanvas();
 
   window.addEventListener("resize", resizeCanvas);
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("keyup", handleKeyUp);
 
-  camera.centerOn(camera.mapWidth / 2, camera.mapHeight / 2);
+  // Center on fort directly (avoid computed ref timing issues)
+  const fort = structureStore.getStructure("fort-1");
+  if (fort) camera.centerOn(fort.position.x, fort.position.y);
 
   animationFrameId = requestAnimationFrame(gameLoop);
 });
 
 const resizeCanvas = () => {
   if (!canvasRef.value) return;
-
   canvasRef.value.width = window.innerWidth;
   canvasRef.value.height = window.innerHeight;
 };
@@ -165,15 +211,14 @@ const gameLoop = (timestamp: number) => {
   const deltaMs = lastFrameTime > 0 ? Math.min(timestamp - lastFrameTime, 100) : 16;
   lastFrameTime = timestamp;
 
-  // gameDeltaMs is 0 when paused, deltaMs*speed otherwise — freezes all simulation
   const gameDeltaMs = timeStore.gameDelta(deltaMs);
 
   timeStore.tick(deltaMs);
   camera.updateMovement();
   unitStore.updateUnitPositions(gameDeltaMs);
+  unitStore.updateFortUnits(gameDeltaMs);
 
   render();
-
   animationFrameId = requestAnimationFrame(gameLoop);
 };
 
@@ -183,9 +228,7 @@ const render = () => {
   const w = canvasRef.value.width;
   const h = canvasRef.value.height;
 
-  // Clamp camera to map bounds
   camera.clampCamera(w, h);
-
   ctx.fillStyle = "#1b1b1b";
   ctx.fillRect(0, 0, w, h);
 
@@ -198,18 +241,16 @@ const render = () => {
   drawMapBounds();
   drawTerrain();
 
-  // Draw resources (before structures)
   for (const resource of resourceStore.allResources) {
     void drawEntityIcon(ctx, resource, resource.position, { size: resource.iconSize });
   }
 
-  // Draw structures first (below)
   for (const structure of structureStore.allStructures) {
     void drawEntityIcon(ctx, structure, structure.position, { size: structure.iconSize });
   }
 
-  // Draw golden halos for selected units
-  for (const unit of unitStore.allUnits) {
+  // Halos for selected units
+  for (const unit of unitStore.mapUnits) {
     if (selectionStore.isSelected(unit.id)) {
       ctx.beginPath();
       ctx.arc(unit.position.x, unit.position.y, unit.iconSize / 2 + 5, 0, Math.PI * 2);
@@ -219,15 +260,14 @@ const render = () => {
     }
   }
 
-  // Draw units on top (above structures)
-  for (const unit of unitStore.allUnits) {
+  // Only render map units (not those inside forts)
+  for (const unit of unitStore.mapUnits) {
     void drawEntityIcon(ctx, unit, unit.position, { size: unit.iconSize });
   }
 
-  // Draw selection rectangle
+  // Selection rectangle
   if (selectionStore.isSelecting && selectionStore.selectionStart && selectionStore.selectionEnd) {
     const rect = selectionStore.getSelectionRect();
-
     if (rect) {
       ctx.strokeStyle = "#FFD700";
       ctx.lineWidth = 2 / camera.zoom;
@@ -237,17 +277,15 @@ const render = () => {
     }
   }
 
-  // Draw ping effect
+  // Ping effect
   if (pingEffect.value) {
     const elapsed = Date.now() - pingEffect.value.startTime;
     const progress = elapsed / pingEffect.value.duration;
-
     if (progress >= 1) {
       pingEffect.value = null;
     } else {
       const radius = 20 + progress * 30;
       const alpha = 1 - progress;
-
       ctx.strokeStyle = `rgba(255, 215, 0, ${alpha})`;
       ctx.lineWidth = 3 / camera.zoom;
       ctx.beginPath();
@@ -261,10 +299,8 @@ const render = () => {
 
 const drawGrid = () => {
   if (!ctx) return;
-
   ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
   ctx.lineWidth = 0.5 / camera.zoom;
-
   const gridSize = 100;
   const w = canvasRef.value?.width ?? 0;
   const h = canvasRef.value?.height ?? 0;
@@ -272,33 +308,27 @@ const drawGrid = () => {
   const halfH = h / (2 * camera.zoom);
   const camX = -camera.panX;
   const camY = -camera.panY;
+  const startX = Math.floor((camX - halfW) / gridSize) * gridSize;
+  const startY = Math.floor((camY - halfH) / gridSize) * gridSize;
+  const endX = camX + halfW;
+  const endY = camY + halfH;
 
-  const worldMinX = camX - halfW;
-  const worldMaxX = camX + halfW;
-  const worldMinY = camY - halfH;
-  const worldMaxY = camY + halfH;
-
-  const startX = Math.floor(worldMinX / gridSize) * gridSize;
-  const startY = Math.floor(worldMinY / gridSize) * gridSize;
-
-  for (let x = startX; x <= worldMaxX; x += gridSize) {
+  for (let x = startX; x <= endX; x += gridSize) {
     ctx.beginPath();
-    ctx.moveTo(x, worldMinY - gridSize);
-    ctx.lineTo(x, worldMaxY + gridSize);
+    ctx.moveTo(x, camY - halfH - gridSize);
+    ctx.lineTo(x, camY + halfH + gridSize);
     ctx.stroke();
   }
-
-  for (let y = startY; y <= worldMaxY; y += gridSize) {
+  for (let y = startY; y <= endY; y += gridSize) {
     ctx.beginPath();
-    ctx.moveTo(worldMinX - gridSize, y);
-    ctx.lineTo(worldMaxX + gridSize, y);
+    ctx.moveTo(camX - halfW - gridSize, y);
+    ctx.lineTo(camX + halfW + gridSize, y);
     ctx.stroke();
   }
 };
 
 const drawMapBounds = () => {
   if (!ctx) return;
-
   ctx.strokeStyle = "#FFD700";
   ctx.lineWidth = 3 / camera.zoom;
   ctx.strokeRect(0, 0, camera.mapWidth, camera.mapHeight);
@@ -306,25 +336,14 @@ const drawMapBounds = () => {
 
 const drawTerrain = () => {
   if (!ctx) return;
-
-  // Draw lakes with improved visual style
   for (const lake of worldStore.allLakes) {
     const outline = lake.outline;
-
     if (!outline || outline.length < 3) continue;
 
-    // Create gradient for depth effect
-    const gradient = ctx.createRadialGradient(
-      lake.center.x,
-      lake.center.y,
-      0,
-      lake.center.x,
-      lake.center.y,
-      lake.radius,
-    );
-    gradient.addColorStop(0, "rgba(30, 100, 180, 0.5)"); // Deeper center
+    const gradient = ctx.createRadialGradient(lake.center.x, lake.center.y, 0, lake.center.x, lake.center.y, lake.radius);
+    gradient.addColorStop(0, "rgba(30, 100, 180, 0.5)");
     gradient.addColorStop(0.7, "rgba(50, 140, 220, 0.4)");
-    gradient.addColorStop(1, "rgba(70, 180, 255, 0.3)"); // Lighter edges
+    gradient.addColorStop(1, "rgba(70, 180, 255, 0.3)");
 
     ctx.fillStyle = gradient;
     ctx.strokeStyle = "rgba(100, 180, 255, 0.6)";
@@ -332,22 +351,17 @@ const drawTerrain = () => {
     ctx.beginPath();
 
     const first = outline[0];
-
     if (!first) continue;
-
     ctx.moveTo(first.x, first.y);
-
     for (let i = 1; i < outline.length; i++) {
       const p = outline[i];
       if (!p) continue;
       ctx.lineTo(p.x, p.y);
     }
-
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    // Add subtle inner glow
     ctx.strokeStyle = "rgba(150, 200, 255, 0.2)";
     ctx.lineWidth = 8 / camera.zoom;
     ctx.stroke();
@@ -355,93 +369,141 @@ const drawTerrain = () => {
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
+  if (e.key === "Escape" && unitStore.pendingReproduction) {
+    unitStore.clearPendingReproduction();
+    timeStore.setSpeed(speedBeforePause);
+    if (selectedStructure.value) structurePanelOpen.value = true;
+    return;
+  }
   camera.handleKeyDown(e.key);
 };
 
-const handleKeyUp = (e: KeyboardEvent) => {
-  camera.handleKeyUp(e.key);
-};
+const handleKeyUp = (e: KeyboardEvent) => camera.handleKeyUp(e.key);
 
 const handleWheel = (e: WheelEvent) => {
   e.preventDefault();
-
-  const direction = e.deltaY > 0 ? -1 : 1;
-
-  camera.adjustZoom(direction);
+  camera.adjustZoom(e.deltaY > 0 ? -1 : 1);
 };
 
 function screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
   if (!canvasRef.value) return { x: 0, y: 0 };
-
   const w = canvasRef.value.width;
   const h = canvasRef.value.height;
-
-  const worldX = (screenX - w / 2) / camera.zoom - camera.panX;
-  const worldY = (screenY - h / 2) / camera.zoom - camera.panY;
-
-  return { x: worldX, y: worldY };
+  return {
+    x: (screenX - w / 2) / camera.zoom - camera.panX,
+    y: (screenY - h / 2) / camera.zoom - camera.panY,
+  };
 }
 
 const handleMouseDown = (e: MouseEvent) => {
-  // Only handle left click for selection
   if (e.button !== 0) return;
-
   const world = screenToWorld(e.offsetX, e.offsetY);
-
   selectionStore.startSelection(world.x, world.y);
 };
 
 const handleMouseMove = (e: MouseEvent) => {
   if (selectionStore.isSelecting) {
     const world = screenToWorld(e.offsetX, e.offsetY);
-
     selectionStore.updateSelection(world.x, world.y);
+  }
+
+  // Cursor pointer over interactive entities
+  const world = screenToWorld(e.offsetX, e.offsetY);
+  let hovering = false;
+
+  for (const unit of unitStore.mapUnits) {
+    const dx = world.x - unit.position.x;
+    const dy = world.y - unit.position.y;
+    if (dx * dx + dy * dy < (unit.iconSize / 2) ** 2) {
+      hovering = true;
+      break;
+    }
+  }
+
+  if (!hovering) {
+    for (const structure of structureStore.allStructures) {
+      const dx = world.x - structure.position.x;
+      const dy = world.y - structure.position.y;
+      if (dx * dx + dy * dy < (structure.iconSize / 2) ** 2) {
+        hovering = true;
+        break;
+      }
+    }
+  }
+
+  if (canvasRef.value) {
+    canvasRef.value.style.cursor = hovering ? "pointer" : "default";
   }
 };
 
 const handleMouseUp = (e: MouseEvent) => {
-  // Only handle left click for selection
   if (e.button !== 0) return;
   if (!selectionStore.isSelecting) return;
 
   const rect = selectionStore.getSelectionRect();
+  const pending = unitStore.pendingReproduction;
 
   if (rect && rect.width > 5 && rect.height > 5) {
-    // Box selection
-    const selectedIds: string[] = [];
-
-    for (const unit of unitStore.allUnits) {
-      const ux = unit.position.x;
-      const uy = unit.position.y;
-
-      if (ux >= rect.x && ux <= rect.x + rect.width && uy >= rect.y && uy <= rect.y + rect.height) {
-        selectedIds.push(unit.id);
+    if (!pending) {
+      // Normal box selection — only map units
+      const selectedIds: string[] = [];
+      for (const unit of unitStore.mapUnits) {
+        const ux = unit.position.x;
+        const uy = unit.position.y;
+        if (ux >= rect.x && ux <= rect.x + rect.width && uy >= rect.y && uy <= rect.y + rect.height) {
+          selectedIds.push(unit.id);
+        }
       }
+      selectionStore.selectUnits(selectedIds);
     }
-
-    selectionStore.selectUnits(selectedIds);
   } else {
-    // Click selection
     const world = screenToWorld(e.offsetX, e.offsetY);
 
-    let clickedUnit = false;
-
-    for (const unit of unitStore.allUnits) {
-      const dx = world.x - unit.position.x;
-      const dy = world.y - unit.position.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance < unit.iconSize / 2) {
-        selectionStore.selectUnits([unit.id]);
-
-        clickedUnit = true;
-
-        break;
+    if (pending) {
+      // Pending reproduction mode — only look for a matching unit
+      for (const unit of unitStore.mapUnits) {
+        if (unit.type !== pending.targetType) continue;
+        const dx = world.x - unit.position.x;
+        const dy = world.y - unit.position.y;
+        if (dx * dx + dy * dy < (unit.iconSize / 2) ** 2) {
+          unitStore.startReproduction(unit.id, pending.targetType, pending.fortId);
+          timeStore.setSpeed(speedBeforePause);
+          if (selectedStructure.value) structurePanelOpen.value = true;
+          selectionStore.endSelection();
+          return;
+        }
       }
-    }
+    } else {
+      // Normal single click — check units first, then structures
+      let clickedSomething = false;
 
-    if (!clickedUnit) {
-      selectionStore.deselectAll();
+      for (const unit of unitStore.mapUnits) {
+        const dx = world.x - unit.position.x;
+        const dy = world.y - unit.position.y;
+        if (dx * dx + dy * dy < (unit.iconSize / 2) ** 2) {
+          selectionStore.selectUnits([unit.id]);
+          clickedSomething = true;
+          break;
+        }
+      }
+
+      if (!clickedSomething) {
+        for (const structure of structureStore.allStructures) {
+          const dx = world.x - structure.position.x;
+          const dy = world.y - structure.position.y;
+          if (dx * dx + dy * dy < (structure.iconSize / 2) ** 2) {
+            selectionStore.deselectAll();
+            openStructurePanel(structure);
+            clickedSomething = true;
+            break;
+          }
+        }
+      }
+
+      if (!clickedSomething) {
+        selectionStore.deselectAll();
+        structurePanelOpen.value = false;
+      }
     }
   }
 
@@ -450,35 +512,26 @@ const handleMouseUp = (e: MouseEvent) => {
 
 const handleContextMenu = (e: MouseEvent) => {
   e.preventDefault();
-
   if (!selectionStore.hasSelectedUnits()) return;
 
   const world = screenToWorld(e.offsetX, e.offsetY);
-
-  // Check if clicking on a resource
   let clickedResource = null;
 
   for (const resource of resourceStore.allResources) {
     const dx = world.x - resource.position.x;
     const dy = world.y - resource.position.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    if (distance < resource.iconSize / 2) {
+    if (dx * dx + dy * dy < (resource.iconSize / 2) ** 2) {
       clickedResource = resource;
-
       break;
     }
   }
 
   if (clickedResource) {
-    // Send units to gather resource
     unitStore.gatherResource(Array.from(selectionStore.selectedUnitIds), clickedResource.id);
   } else {
-    // Regular move command
     unitStore.moveUnitsTo(Array.from(selectionStore.selectedUnitIds), world.x, world.y);
   }
 
-  // Show ping effect
   pingEffect.value = {
     x: world.x,
     y: world.y,
@@ -491,7 +544,18 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", resizeCanvas);
   window.removeEventListener("keydown", handleKeyDown);
   window.removeEventListener("keyup", handleKeyUp);
-
   if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
 });
 </script>
+
+<style scoped>
+.hud-enter-active,
+.hud-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.hud-enter-from,
+.hud-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(12px);
+}
+</style>

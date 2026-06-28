@@ -1,137 +1,108 @@
 <template>
   <div
-    class="flex flex-col items-center bg-slate-900/85 backdrop-blur-sm rounded-2xl border border-slate-700/50 shadow-2xl select-none overflow-hidden"
-    :style="{ boxShadow: `0 0 28px ${glowColor}28, 0 4px 20px rgba(0,0,0,0.6)` }"
+    class="flex flex-col items-center bg-black/60 backdrop-blur-sm border border-green-500/25 select-none overflow-hidden"
   >
-    <!-- ── Expanded: semicircle + day info ── -->
     <Transition name="clock-slide">
       <div v-if="expanded" class="flex flex-col items-center w-full">
-        <!-- Semicircle SVG — viewBox crops exactly at the horizon (y=36) -->
-        <svg viewBox="0 0 72 36" class="w-24 h-12" :style="{ filter: `drop-shadow(0 0 6px ${glowColor}70)` }">
+        <!-- Speedometer semicircle -->
+        <svg viewBox="0 0 80 40" class="w-28 h-14">
           <defs>
-            <!-- Clips everything to the upper semicircle -->
-            <clipPath id="semi-clip">
-              <rect x="0" y="0" width="72" height="36" />
-            </clipPath>
-
-            <clipPath id="circle-clip">
-              <circle cx="36" cy="36" r="32" />
-            </clipPath>
-
-            <radialGradient id="sky-vignette" cx="50%" cy="0%" r="100%">
-              <stop offset="60%" stop-color="transparent" />
-              <stop offset="100%" stop-color="rgba(0,0,0,0.45)" />
-            </radialGradient>
+            <mask id="crescent-mask">
+              <circle cx="40" cy="73" r="4.2" fill="white" />
+              <circle cx="42.2" cy="71.6" r="3.4" fill="black" />
+            </mask>
           </defs>
 
-          <!-- Sky fill (upper semicircle, circle-clipped for rounded top) -->
-          <rect x="4" y="4" width="64" height="32" :fill="skyColor" clip-path="url(#circle-clip)" />
+          <!-- Outer arc -->
+          <path d="M 4,40 A 36,36 0 0,1 76,40" fill="none" stroke="#4ade80" stroke-width="0.7" opacity="0.5" />
 
-          <!-- ── Rotating wheel ── -->
-          <g :transform="`rotate(${wheelRotation}, 36, 36)`">
-            <!-- Sun -->
-            <circle cx="36" cy="9" r="5.5" fill="#FCD34D" />
+          <!-- Inner arc (subtle gauge band) -->
+          <path d="M 10,40 A 30,30 0 0,1 70,40" fill="none" stroke="#166534" stroke-width="0.4" opacity="0.5" />
 
-            <circle cx="36" cy="9" r="9" fill="#FCD34D" opacity="0.15" />
+          <!-- Tick marks — speedometer lines -->
+          <line
+            v-for="tick in tickLines"
+            :key="`tick-${tick.i}`"
+            :x1="tick.x1"
+            :y1="tick.y1"
+            :x2="tick.x2"
+            :y2="tick.y2"
+            :stroke="tick.major ? '#ffffff' : '#4ade80'"
+            :stroke-width="tick.major ? '1' : '0.5'"
+            :opacity="tick.major ? '0.75' : '0.35'"
+          />
 
+          <!-- Rotating wheel (sun + moon) -->
+          <g :transform="`rotate(${wheelRotation}, 40, 40)`">
+            <!-- Sun: outline circle + rays -->
+            <circle cx="40" cy="7" r="3.8" fill="none" stroke="#ffffff" stroke-width="1.1" />
             <line
               v-for="(ray, i) in sunRays"
-              :key="`ray-${i}`"
+              :key="`sun-ray-${i}`"
               :x1="ray.x1"
               :y1="ray.y1"
               :x2="ray.x2"
               :y2="ray.y2"
-              stroke="#FDE68A"
-              stroke-width="1.4"
+              stroke="#4ade80"
+              stroke-width="0.8"
               stroke-linecap="round"
-              opacity="0.8"
+              opacity="0.85"
             />
 
-            <!-- Moon -->
-            <circle cx="36" cy="63" r="5.5" fill="#C7D2FE" />
-            <circle cx="38.5" cy="61.5" r="4.5" :fill="moonCutoutFill" />
-            <circle cx="36" cy="63" r="8.5" fill="#818CF8" opacity="0.10" />
+            <!-- Moon: crescent via mask -->
+            <circle cx="40" cy="73" r="4.2" fill="#4ade80" mask="url(#crescent-mask)" />
           </g>
 
-          <!-- Static tick marks (upper-half only: i=0,1,2,6,7) -->
-          <circle
-            v-for="tick in tickMarks"
-            :key="`tick-${tick.i}`"
-            :cx="tick.cx"
-            :cy="tick.cy"
-            r="1.3"
-            fill="rgba(255,255,255,0.28)"
-          />
+          <!-- 12 o'clock notch -->
+          <line x1="40" y1="3.5" x2="40" y2="8" stroke="#ffffff" stroke-width="1.5" />
 
-          <!-- 12-o'clock indicator -->
-          <rect x="35" y="4" width="2" height="4" rx="1" fill="rgba(255,255,255,0.75)" />
-
-          <!-- Vignette -->
-          <rect x="0" y="0" width="72" height="36" fill="url(#sky-vignette)" clip-path="url(#circle-clip)" />
-
-          <!-- Outer arc ring -->
-          <circle
-            cx="36"
-            cy="36"
-            r="32"
-            fill="none"
-            stroke="rgba(255,255,255,0.13)"
-            stroke-width="1.5"
-            clip-path="url(#circle-clip)"
-          />
-
-          <!-- Horizon glow line (at the very bottom of the viewport) -->
-          <line x1="4" y1="35.5" x2="68" y2="35.5" :stroke="horizonColor" stroke-width="0.8" opacity="0.9" />
+          <!-- Horizon line -->
+          <line x1="4" y1="39.5" x2="76" y2="39.5" stroke="#4ade80" stroke-width="0.5" opacity="0.45" />
         </svg>
 
         <!-- Day + phase label -->
-        <div class="flex items-center justify-center gap-2 w-full px-4 py-1.5 border-b border-slate-700/40">
-          <span class="text-xs font-bold text-white tabular-nums tracking-wide">
-            Dia {{ timeStore.day }}
+        <div class="flex items-center justify-center gap-2 w-full px-3 py-1 border-b border-green-500/20">
+          <span class="text-xs font-mono font-bold text-white tabular-nums tracking-widest">
+            DIA {{ String(timeStore.day).padStart(2, "0") }}
           </span>
-
-          <div class="w-px h-3 bg-slate-600 rounded-full" />
-
-          <span class="text-xs font-medium" :style="{ color: phaseColor }">
+          <span class="text-green-800">|</span>
+          <span class="text-xs font-mono uppercase tracking-widest" :style="{ color: phaseColor }">
             {{ timeStore.phaseLabel }}
           </span>
         </div>
       </div>
     </Transition>
 
-    <!-- ── Controls row — always visible ── -->
-    <div class="flex items-center gap-0.5 px-2 py-1.5">
-      <!-- When collapsed: show quick phase + day indicator -->
+    <!-- Controls row -->
+    <div class="flex items-center gap-0.5 px-2 py-1 font-mono">
       <template v-if="!expanded">
-        <span class="text-sm leading-none mr-1" :style="{ filter: `drop-shadow(0 0 4px ${glowColor}90)` }">
-          {{ timeStore.isDay ? "☀️" : "🌙" }}
-        </span>
-
-        <span class="text-xs font-bold text-slate-300 tabular-nums mr-1">D{{ timeStore.day }}</span>
-
-        <div class="w-px h-3.5 bg-slate-700 rounded-full mr-0.5" />
+        <UIcon
+          :name="timeStore.isDay ? 'i-lucide-sun' : 'i-lucide-moon'"
+          class="size-3.5 mr-1"
+          :style="{ color: phaseColor }"
+        />
+        <span class="text-xs text-green-300 tabular-nums mr-1">D{{ String(timeStore.day).padStart(2, "0") }}</span>
+        <span class="text-green-800 mr-0.5">|</span>
       </template>
 
-      <!-- Speed buttons -->
       <button
         v-for="s in speeds"
         :key="s"
-        class="px-2 py-1 rounded-lg text-xs font-mono font-bold transition-all duration-150 min-w-8 text-center"
+        class="px-1.5 py-0.5 text-xs font-mono font-bold transition-all duration-100 min-w-7 text-center border"
         :class="
           timeStore.speed === s
-            ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-inset ring-emerald-500/40'
-            : 'text-slate-500 hover:text-slate-200 hover:bg-slate-700/60'
+            ? 'border-green-500/50 bg-green-500/10 text-green-300'
+            : 'border-transparent text-green-900 hover:text-green-500 hover:border-green-900/50'
         "
         @click="timeStore.setSpeed(s)"
       >
         {{ speedLabel(s) }}
       </button>
 
-      <!-- Divider + collapse toggle -->
-      <div class="w-px h-3.5 bg-slate-700 rounded-full mx-1" />
+      <span class="text-green-800 mx-0.5">|</span>
 
       <button
-        class="p-1 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-700/60 transition-colors"
+        class="p-0.5 text-green-900 hover:text-green-400 transition-colors"
         :title="expanded ? 'Recolher' : 'Expandir'"
         @click="expanded = !expanded"
       >
@@ -149,119 +120,59 @@ const expanded = ref(true);
 const speeds: TimeSpeed[] = [0, 1, 2, 5, 10];
 
 function speedLabel(s: TimeSpeed): string {
-  if (s === 0) return "⏸";
-
-  if (s === 1) return "▶";
-
-  return `${s}×`;
+  if (s === 0) return "||";
+  if (s === 1) return ">";
+  return `${s}x`;
 }
 
-/** Wheel rotation: noon (0.5) = 0°, midnight (0) = -180°, dawn (0.25) = -90° */
+/** Wheel rotation: noon (0.5) = 0°, midnight (0) = -180° */
 const wheelRotation = computed(() => (timeStore.timeOfDay - 0.5) * 360);
-
-// ── Sky colour interpolation ──────────────────────────────────────────────
-
-type RGB = [number, number, number];
-
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t;
-}
-
-function lerpRGB(c1: RGB, c2: RGB, t: number): string {
-  return `rgb(${Math.round(lerp(c1[0], c2[0], t))},${Math.round(lerp(c1[1], c2[1], t))},${Math.round(lerp(c1[2], c2[2], t))})`;
-}
-
-const skyKeyframes: Array<[number, RGB]> = [
-  [0.0, [2, 6, 23]],
-  [0.18, [2, 6, 23]],
-  [0.22, [30, 15, 5]],
-  [0.28, [180, 60, 10]],
-  [0.33, [125, 211, 252]],
-  [0.5, [14, 165, 233]],
-  [0.67, [125, 211, 252]],
-  [0.72, [180, 60, 10]],
-  [0.78, [30, 15, 5]],
-  [0.82, [2, 6, 23]],
-  [1.0, [2, 6, 23]],
-];
-
-const skyColor = computed<string>(() => {
-  const t = timeStore.timeOfDay;
-
-  for (let i = 0; i < skyKeyframes.length - 1; i++) {
-    const [t1, c1] = skyKeyframes[i]!;
-    const [t2, c2] = skyKeyframes[i + 1]!;
-
-    if (t >= t1 && t <= t2) return lerpRGB(c1, c2, (t - t1) / (t2 - t1));
-  }
-
-  return "rgb(2,6,23)";
-});
-
-/** Crescent cutout — always matches the sky (moon is only visible at night = dark sky) */
-const moonCutoutFill = computed(() => skyColor.value);
-
-const horizonColor = computed(() => {
-  const ph = timeStore.phase;
-  if (ph === "dawn" || ph === "dusk") return "rgba(251,146,60,0.85)";
-
-  if (ph === "day") return "rgba(125,211,252,0.4)";
-
-  return "rgba(255,255,255,0.18)";
-});
-
-const glowColor = computed(() => {
-  const ph = timeStore.phase;
-
-  if (ph === "day") return "#38bdf8";
-
-  if (ph === "dawn" || ph === "dusk") return "#f97316";
-
-  return "#4338ca";
-});
 
 const phaseColor = computed(() => {
   const ph = timeStore.phase;
-
-  if (ph === "day") return "#7dd3fc";
-
-  if (ph === "dawn" || ph === "dusk") return "#fb923c";
-
-  return "#818cf8";
+  if (ph === "day") return "#4ade80";
+  if (ph === "dawn" || ph === "dusk") return "#ffffff";
+  return "#22c55e";
 });
 
-// ── Precomputed geometry ────────────────────────────────────────────────────
+// Speedometer tick marks: 9 lines from -90° to +90° around the arc
+const TICK_ANGLES = [-90, -67.5, -45, -22.5, 0, 22.5, 45, 67.5, 90];
+const MAJOR_ANGLES = new Set([-90, -45, 0, 45, 90]);
 
-/** 8 sun rays centred on the sun at (36, 9). */
-const sunRays = Array.from({ length: 8 }, (_, i) => {
-  const a = (i / 8) * 2 * Math.PI;
-
+const tickLines = TICK_ANGLES.map((deg, i) => {
+  const rad = (deg * Math.PI) / 180;
+  const major = MAJOR_ANGLES.has(deg);
+  const rOuter = 36;
+  const rInner = major ? 30 : 33;
   return {
-    x1: 36 + 7 * Math.sin(a),
-    y1: 9 - 7 * Math.cos(a),
-    x2: 36 + 10.5 * Math.sin(a),
-    y2: 9 - 10.5 * Math.cos(a),
+    i,
+    major,
+    x1: 40 + rOuter * Math.sin(rad),
+    y1: 40 - rOuter * Math.cos(rad),
+    x2: 40 + rInner * Math.sin(rad),
+    y2: 40 - rInner * Math.cos(rad),
   };
 });
 
-/**
- * Tick marks for the UPPER semicircle only.
- * Angles where cy ≤ 36: i ∈ {0,1,2,6,7} at radius 30.
- */
-const tickMarks = [0, 1, 2, 6, 7].map((i) => ({
-  i,
-  cx: 36 + 30 * Math.sin((i / 8) * 2 * Math.PI),
-  cy: 36 - 30 * Math.cos((i / 8) * 2 * Math.PI),
-}));
+// 8 sun rays around (40, 7)
+const sunRays = Array.from({ length: 8 }, (_, i) => {
+  const a = (i / 8) * 2 * Math.PI;
+  return {
+    x1: 40 + 5.8 * Math.sin(a),
+    y1: 7 - 5.8 * Math.cos(a),
+    x2: 40 + 8 * Math.sin(a),
+    y2: 7 - 8 * Math.cos(a),
+  };
+});
 </script>
 
 <style scoped>
 .clock-slide-enter-active,
 .clock-slide-leave-active {
   transition:
-    max-height 0.28s ease,
-    opacity 0.2s ease;
-  max-height: 120px;
+    max-height 0.22s ease,
+    opacity 0.18s ease;
+  max-height: 100px;
   overflow: hidden;
 }
 .clock-slide-enter-from,
