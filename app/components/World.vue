@@ -10,6 +10,8 @@
       @contextmenu="handleContextMenu"
     />
 
+    <CombatEffects :transform="cameraTransform" />
+
     <div class="absolute top-4 left-4 bg-black/75 backdrop-blur-sm p-3 border border-green-500/25 text-xs font-mono text-green-500 space-y-1">
       <div class="text-green-800">ZOOM <span class="text-green-400">{{ camera.zoom.toFixed(2) }}x</span></div>
       <div class="text-green-800">PAN  <span class="text-green-400">{{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</span></div>
@@ -67,6 +69,28 @@
       :structure="selectedStructure"
       @close="structurePanelOpen = false"
     />
+
+    <!-- Game over overlay -->
+    <Transition name="hud">
+      <div
+        v-if="gameStore.gameOver"
+        class="absolute inset-0 z-[60] flex items-center justify-center bg-black/85 backdrop-blur-sm"
+      >
+        <div class="flex flex-col items-center gap-4 px-10 py-8 border border-red-500/40 bg-black/90 font-mono">
+          <UIcon name="i-game-icons-tombstone" class="size-12 text-red-500" />
+          <span class="text-2xl font-bold text-red-400 uppercase tracking-widest">O Forte Caiu</span>
+          <span class="text-xs text-red-800 uppercase tracking-widest">
+            Sobreviveu até o dia {{ timeStore.day }}
+          </span>
+          <button
+            @click="regenerateWorld"
+            class="mt-2 px-4 py-2 border border-red-500/40 bg-red-900/20 hover:bg-red-900/40 hover:border-red-500/60 text-red-300 hover:text-red-100 text-xs uppercase tracking-widest transition-colors"
+          >
+            &gt; Recomeçar
+          </button>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -80,6 +104,9 @@ import { useWorldStore } from "@/stores/world";
 import { useStructureStore } from "@/stores/structures";
 import { useResourceStore } from "@/stores/resources";
 import { useUnitStore } from "@/stores/units";
+import { useEnemyStore } from "@/stores/enemies";
+import { useCombatStore } from "@/stores/combat";
+import { useGameStore } from "@/stores/game";
 import { useSelectionStore } from "@/stores/selection";
 import { UnitType } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
@@ -92,6 +119,9 @@ const worldStore = useWorldStore();
 const structureStore = useStructureStore();
 const resourceStore = useResourceStore();
 const unitStore = useUnitStore();
+const enemyStore = useEnemyStore();
+const combatStore = useCombatStore();
+const gameStore = useGameStore();
 const selectionStore = useSelectionStore();
 const inventoryStore = useInventoryStore();
 const timeStore = useTimeStore();
@@ -101,6 +131,14 @@ let ctx: CanvasRenderingContext2D | null = null;
 
 let animationFrameId: number | null = null;
 let lastFrameTime = 0;
+
+const canvasSize = reactive({ width: 0, height: 0 });
+
+/** Same translate/scale/translate the canvas render loop applies, so the DOM effects layer tracks the camera. */
+const cameraTransform = computed(
+  () =>
+    `translate(${canvasSize.width / 2}px, ${canvasSize.height / 2}px) scale(${camera.zoom}) translate(${camera.panX}px, ${camera.panY}px)`,
+);
 
 const overlay = useOverlay();
 const resourcePanelOverlay = overlay.create(LazyResourcePanel);
@@ -153,9 +191,11 @@ function regenerateWorld() {
   }
 
   unitStore.initialize();
+  enemyStore.initialize();
   inventoryStore.clear();
   selectionStore.deselectAll();
   timeStore.reset();
+  gameStore.reset();
 
   structurePanelOpen.value = false;
   selectedStructure.value = null;
@@ -188,6 +228,9 @@ onMounted(async () => {
   }
 
   unitStore.initialize();
+  enemyStore.initialize();
+  gameStore.reset();
+  gameStore.startDayWatcher();
   resizeCanvas();
 
   window.addEventListener("resize", resizeCanvas);
@@ -205,6 +248,8 @@ const resizeCanvas = () => {
   if (!canvasRef.value) return;
   canvasRef.value.width = window.innerWidth;
   canvasRef.value.height = window.innerHeight;
+  canvasSize.width = canvasRef.value.width;
+  canvasSize.height = canvasRef.value.height;
 };
 
 const gameLoop = (timestamp: number) => {
@@ -217,6 +262,9 @@ const gameLoop = (timestamp: number) => {
   camera.updateMovement();
   unitStore.updateUnitPositions(gameDeltaMs);
   unitStore.updateFortUnits(gameDeltaMs);
+  enemyStore.updateEnemyAI(gameDeltaMs);
+  combatStore.updateCombat(gameDeltaMs);
+  gameStore.updateGame(gameDeltaMs);
 
   render();
   animationFrameId = requestAnimationFrame(gameLoop);
@@ -247,6 +295,12 @@ const render = () => {
 
   for (const structure of structureStore.allStructures) {
     void drawEntityIcon(ctx, structure, structure.position, { size: structure.iconSize });
+    drawHealthBar(structure.position, structure.iconSize, structure.health, structure.maxHealth);
+  }
+
+  for (const enemy of enemyStore.allEnemies) {
+    void drawEntityIcon(ctx, enemy, enemy.position, { size: enemy.iconSize });
+    drawHealthBar(enemy.position, enemy.iconSize, enemy.health, enemy.maxHealth);
   }
 
   // Halos for selected units
@@ -263,6 +317,7 @@ const render = () => {
   // Only render map units (not those inside forts)
   for (const unit of unitStore.mapUnits) {
     void drawEntityIcon(ctx, unit, unit.position, { size: unit.iconSize });
+    drawHealthBar(unit.position, unit.iconSize, unit.health, unit.maxHealth);
   }
 
   // Selection rectangle
@@ -295,6 +350,23 @@ const render = () => {
   }
 
   ctx.restore();
+};
+
+const drawHealthBar = (position: { x: number; y: number }, iconSize: number, health: number, maxHealth: number) => {
+  if (!ctx || health >= maxHealth) return;
+
+  const width = iconSize * 0.8;
+  const height = 5 / camera.zoom;
+  const x = position.x - width / 2;
+  const y = position.y - iconSize / 2 - height - 6 / camera.zoom;
+  const ratio = Math.max(0, health / maxHealth);
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.fillRect(x - 1, y - 1, width + 2, height + 2);
+  ctx.fillStyle = "#7f1d1d";
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = ratio > 0.3 ? "#4ade80" : "#ef4444";
+  ctx.fillRect(x, y, width * ratio, height);
 };
 
 const drawGrid = () => {

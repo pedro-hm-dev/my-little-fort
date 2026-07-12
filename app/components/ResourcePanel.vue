@@ -118,6 +118,8 @@ const resourceColors: Record<ResourceType, string> = {
   [ResourceType.Stone]: "#94a3b8",
   [ResourceType.Metal]: "#71717a",
   [ResourceType.Gold]: "#fbbf24",
+  [ResourceType.Meat]: "#ef4444",
+  [ResourceType.Leather]: "#92400e",
 };
 
 const resourceNames: Record<ResourceType, string> = {
@@ -126,6 +128,8 @@ const resourceNames: Record<ResourceType, string> = {
   [ResourceType.Stone]: "Pedra",
   [ResourceType.Metal]: "Metal",
   [ResourceType.Gold]: "Ouro",
+  [ResourceType.Meat]: "Carne",
+  [ResourceType.Leather]: "Couro",
 };
 
 const resourceIcons: Record<ResourceType, string> = {
@@ -134,6 +138,8 @@ const resourceIcons: Record<ResourceType, string> = {
   [ResourceType.Stone]: "i-game-icons-stone-pile",
   [ResourceType.Metal]: "i-game-icons-minerals",
   [ResourceType.Gold]: "i-game-icons-gold-nuggets",
+  [ResourceType.Meat]: "i-game-icons-meat",
+  [ResourceType.Leather]: "i-game-icons-animal-hide",
 };
 
 const sortedInventory = computed(() =>

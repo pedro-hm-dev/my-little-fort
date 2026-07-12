@@ -16,6 +16,8 @@ export enum ResourceType {
   Stone = "stone",
   Metal = "metal",
   Gold = "gold",
+  Meat = "meat",
+  Leather = "leather",
 }
 
 export interface Position {

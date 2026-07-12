@@ -1,0 +1,69 @@
+export interface Position {
+  x: number;
+  y: number;
+}
+
+/**
+ * Structural contract shared by Unit and Enemy — not an extends/implements
+ * relationship, just matching field names so combat code can operate on either.
+ */
+export interface Combatant {
+  id: string;
+  position: Position;
+  health: number;
+  maxHealth: number;
+  combatRange: number;
+  actionIds: string[];
+  actionCooldowns: Record<string, number>;
+  actionLock?: ActionLock;
+  combatTargetId?: string;
+  combatTargetIsStructure?: boolean;
+}
+
+export interface ActionLock {
+  actionId: string;
+  targetId: string;
+  targetIsStructure: boolean;
+  elapsedMs: number;
+  impactApplied: boolean;
+}
+
+export type ActionVfx = "thrust" | "slash" | "arrow" | "bombArrow" | "bite";
+
+export interface ActionDefinition {
+  id: string;
+  label: string;
+  kind: "melee" | "ranged";
+  damage: [number, number];
+  critChance: number;
+  critMultiplier: number;
+  cooldownMs: number;
+  animationMs: number;
+  /** When within the animation the damage actually lands (<= animationMs). */
+  impactMs: number;
+  minRange: number;
+  maxRange: number;
+  vfx: ActionVfx;
+  /** Area-of-effect radius, bombArrow only. */
+  aoeRadius?: number;
+  /** Random-pick weight among off-cooldown, in-range actions. Default 1. */
+  weight?: number;
+}
+
+export interface LootDrop {
+  type: string;
+  chance: number;
+  amount: [number, number];
+}
+
+export interface EffectSpec {
+  id: string;
+  kind: ActionVfx | "damageNumber";
+  x: number;
+  y: number;
+  targetX?: number;
+  targetY?: number;
+  amount?: number;
+  crit?: boolean;
+  durationMs: number;
+}

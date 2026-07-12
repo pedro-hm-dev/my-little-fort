@@ -32,7 +32,9 @@
     "baseEfficiency": 0.7,
     "efficiency": 0.7,
     "foodPerDay": 2,
-    "reproductionTimeHours": 8
+    "reproductionTimeHours": 8,
+    "combatRange": 55,
+    "actionIds": ["thrust", "slash"]
   },
 
   "archer": {
@@ -50,7 +52,9 @@
     "baseEfficiency": 0.6,
     "efficiency": 0.6,
     "foodPerDay": 1,
-    "reproductionTimeHours": 5
+    "reproductionTimeHours": 5,
+    "combatRange": 260,
+    "actionIds": ["arrowShot", "bombArrowShot"]
   },
 
   "hunter": {
@@ -68,7 +72,9 @@
     "baseEfficiency": 1.5,
     "efficiency": 1.5,
     "foodPerDay": 1,
-    "reproductionTimeHours": 3
+    "reproductionTimeHours": 3,
+    "combatRange": 200,
+    "actionIds": ["arrowShot"]
   },
 
   "miner": {

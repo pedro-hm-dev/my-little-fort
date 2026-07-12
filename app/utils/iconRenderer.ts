@@ -2,12 +2,14 @@ import iconsJson from "@iconify-json/game-icons/icons.json";
 import { StructureType, type Structure, type Position as StructurePosition } from "@/types/Structure";
 import { UnitType, type Unit, type Position as UnitPosition } from "@/types/Unit";
 import { type Resource, type Position as ResourcePosition } from "@/types/Resource";
+import { type Enemy, type Position as EnemyPosition } from "@/types/Enemy";
 import structureDefinitions from "~/data/structureDefinitions.json";
 import unitDefinitions from "~/data/unitDefinitions.json";
 import resourceDefinitions from "~/data/resourceDefinitions.json";
+import enemyDefinitions from "~/data/enemyDefinitions.json";
 
 // Reuse shared shape for both Unit and Structure positions
-export type Point = StructurePosition | UnitPosition | ResourcePosition;
+export type Point = StructurePosition | UnitPosition | ResourcePosition | EnemyPosition;
 
 type IconifyIconEntry = {
   body: string;
@@ -31,14 +33,16 @@ const ENTITY_COLORS = {
   unit: "#90EE90", // Light green
   structure: "#FFFFFF", // White
   resource: "#F0E68C", // Khaki/gold
+  enemy: "#ef4444", // Red — hostile
 } as const;
 
-function resolveIconName(entity: Structure | Unit | Resource): string {
+function resolveIconName(entity: Structure | Unit | Resource | Enemy): string {
   if (entity.iconName) return entity.iconName;
   return DEFAULT_ICON;
 }
 
-function getEntityColor(entity: Structure | Unit | Resource): string {
+function getEntityColor(entity: Structure | Unit | Resource | Enemy): string {
+  if (isEnemy(entity)) return ENTITY_COLORS.enemy;
   if (isUnit(entity)) return ENTITY_COLORS.unit;
   if (isStructure(entity)) return ENTITY_COLORS.structure;
   return ENTITY_COLORS.resource;
@@ -94,17 +98,21 @@ function buildIconImage(iconName: string, color: string = "white"): Promise<HTML
   return promise;
 }
 
-function isUnit(entity: Structure | Unit | Resource): entity is Unit {
+function isUnit(entity: Structure | Unit | Resource | Enemy): entity is Unit {
   return "baseSpeed" in entity && "speed" in entity;
 }
 
-function isStructure(entity: Structure | Unit | Resource): entity is Structure {
-  return "health" in entity && "maxHealth" in entity && !("baseSpeed" in entity);
+function isEnemy(entity: Structure | Unit | Resource | Enemy): entity is Enemy {
+  return "behavior" in entity && "combatRange" in entity;
+}
+
+function isStructure(entity: Structure | Unit | Resource | Enemy): entity is Structure {
+  return "health" in entity && "maxHealth" in entity && !("baseSpeed" in entity) && !("behavior" in entity);
 }
 
 export async function drawEntityIcon(
   ctx: CanvasRenderingContext2D,
-  entity: Structure | Unit | Resource,
+  entity: Structure | Unit | Resource | Enemy,
   position: Point,
   options?: { size?: number },
 ): Promise<void> {
@@ -133,7 +141,7 @@ export async function drawEntityIcon(
  */
 export function drawEntityIconSync(
   ctx: CanvasRenderingContext2D,
-  entity: Structure | Unit | Resource,
+  entity: Structure | Unit | Resource | Enemy,
   position: Point,
   options?: { size?: number },
 ): boolean {
@@ -176,6 +184,11 @@ export async function preloadAllIcons(): Promise<void> {
       name: (resourceDef as { iconName: string }).iconName,
       color: ENTITY_COLORS.resource,
     });
+  }
+
+  // Collect all icon names from enemies (red)
+  for (const enemyDef of Object.values(enemyDefinitions)) {
+    iconColorPairs.push({ name: enemyDef.iconName, color: ENTITY_COLORS.enemy });
   }
 
   // Preload all unique icon+color combinations

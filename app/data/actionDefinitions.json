@@ -1,0 +1,130 @@
+{
+  "thrust": {
+    "id": "thrust",
+    "label": "Estocada",
+    "kind": "melee",
+    "damage": [8, 14],
+    "critChance": 0.12,
+    "critMultiplier": 2,
+    "cooldownMs": 900,
+    "animationMs": 450,
+    "impactMs": 220,
+    "minRange": 0,
+    "maxRange": 55,
+    "vfx": "thrust",
+    "weight": 1
+  },
+
+  "slash": {
+    "id": "slash",
+    "label": "Corte",
+    "kind": "melee",
+    "damage": [10, 18],
+    "critChance": 0.15,
+    "critMultiplier": 2,
+    "cooldownMs": 1100,
+    "animationMs": 550,
+    "impactMs": 300,
+    "minRange": 0,
+    "maxRange": 55,
+    "vfx": "slash",
+    "weight": 1
+  },
+
+  "arrowShot": {
+    "id": "arrowShot",
+    "label": "Tiro de Flecha",
+    "kind": "ranged",
+    "damage": [6, 11],
+    "critChance": 0.18,
+    "critMultiplier": 2.2,
+    "cooldownMs": 1000,
+    "animationMs": 500,
+    "impactMs": 350,
+    "minRange": 0,
+    "maxRange": 260,
+    "vfx": "arrow",
+    "weight": 4
+  },
+
+  "bombArrowShot": {
+    "id": "bombArrowShot",
+    "label": "Flecha Bomba",
+    "kind": "ranged",
+    "damage": [14, 22],
+    "critChance": 0.1,
+    "critMultiplier": 2,
+    "cooldownMs": 3200,
+    "animationMs": 650,
+    "impactMs": 480,
+    "minRange": 0,
+    "maxRange": 240,
+    "vfx": "bombArrow",
+    "aoeRadius": 70,
+    "weight": 1
+  },
+
+  "clubSmash": {
+    "id": "clubSmash",
+    "label": "Golpe de Clava",
+    "kind": "melee",
+    "damage": [9, 16],
+    "critChance": 0.1,
+    "critMultiplier": 2,
+    "cooldownMs": 1200,
+    "animationMs": 600,
+    "impactMs": 350,
+    "minRange": 0,
+    "maxRange": 50,
+    "vfx": "slash",
+    "weight": 1
+  },
+
+  "hookShot": {
+    "id": "hookShot",
+    "label": "Flechada",
+    "kind": "ranged",
+    "damage": [5, 10],
+    "critChance": 0.15,
+    "critMultiplier": 2,
+    "cooldownMs": 1300,
+    "animationMs": 500,
+    "impactMs": 350,
+    "minRange": 0,
+    "maxRange": 220,
+    "vfx": "arrow",
+    "weight": 1
+  },
+
+  "bite": {
+    "id": "bite",
+    "label": "Mordida",
+    "kind": "melee",
+    "damage": [6, 12],
+    "critChance": 0.2,
+    "critMultiplier": 2,
+    "cooldownMs": 700,
+    "animationMs": 350,
+    "impactMs": 180,
+    "minRange": 0,
+    "maxRange": 40,
+    "vfx": "bite",
+    "weight": 1
+  },
+
+  "lungeBite": {
+    "id": "lungeBite",
+    "label": "Bote",
+    "kind": "melee",
+    "damage": [4, 9],
+    "critChance": 0.15,
+    "critMultiplier": 2,
+    "cooldownMs": 800,
+    "animationMs": 350,
+    "impactMs": 180,
+    "minRange": 0,
+    "maxRange": 35,
+    "vfx": "bite",
+    "weight": 1
+  }
+}

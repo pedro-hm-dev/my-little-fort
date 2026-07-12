@@ -37,6 +37,9 @@ function spawnUnit(type: UnitType, position: Position): Unit {
     efficiency: def.efficiency,
     foodPerDay: def.foodPerDay,
     reproductionTimeHours: def.reproductionTimeHours,
+    combatRange: (def as { combatRange?: number }).combatRange ?? 0,
+    actionIds: (def as { actionIds?: string[] }).actionIds ?? [],
+    actionCooldowns: {},
   };
 }
 

@@ -1,3 +1,5 @@
+import type { ActionLock } from "@/types/Combat";
+
 export interface Unit {
   id: string;
   type: UnitType;
@@ -22,6 +24,13 @@ export interface Unit {
   insideFortId?: string;
   reproductionProgress?: number;
   reproductionTargetType?: UnitType;
+  // Combat state (Combatant contract — see types/Combat.ts)
+  combatRange: number;
+  actionIds: string[];
+  actionCooldowns: Record<string, number>;
+  actionLock?: ActionLock;
+  combatTargetId?: string;
+  combatTargetIsStructure?: boolean;
 }
 
 export enum UnitType {
