@@ -328,39 +328,37 @@ const render = () => {
   // Halos for selected units
   const queuedEnemyIds = new Set<string>();
   const queuedResourceIds = new Set<string>();
+  const queuedStructureIds = new Set<string>();
 
-  for (const unit of unitStore.mapUnits) {
-    if (selectionStore.isSelected(unit.id)) {
-      if (unit.combatTargetId && !unit.combatTargetIsStructure) queuedEnemyIds.add(unit.combatTargetId);
-      unit.combatQueue?.forEach((id) => queuedEnemyIds.add(id));
-      if (unit.targetResource) queuedResourceIds.add(unit.targetResource);
-      unit.gatherQueue?.forEach((id) => queuedResourceIds.add(id));
+  for (const unit of unitStore.allUnits) {
+    if (!selectionStore.isSelected(unit.id)) continue;
 
-      ctx.beginPath();
-      ctx.arc(unit.position.x, unit.position.y, unit.iconSize / 2 + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = "#FFD700";
-      ctx.lineWidth = 3 / camera.zoom;
-      ctx.stroke();
+    // Sheltered units don't render on the map (no icon to halo), but their fort still deserves one.
+    if (unit.insideFortId) {
+      queuedStructureIds.add(unit.insideFortId);
+      continue;
     }
+
+    if (unit.combatTargetId && !unit.combatTargetIsStructure) queuedEnemyIds.add(unit.combatTargetId);
+    unit.combatQueue?.forEach((id) => queuedEnemyIds.add(id));
+    if (unit.targetResource) queuedResourceIds.add(unit.targetResource);
+    unit.gatherQueue?.forEach((id) => queuedResourceIds.add(id));
+    if (unit.shelterTargetId) queuedStructureIds.add(unit.shelterTargetId);
+
+    drawHalo(unit.position, unit.iconSize, "#FFD700");
   }
 
-  // Enemies/resources queued by a selected unit's attack or gather order — red for targets, yellow for resources.
+  // Enemies/resources/structures queued by a selected unit's attack, gather or shelter order.
   for (const enemy of enemyStore.allEnemies) {
-    if (!queuedEnemyIds.has(enemy.id)) continue;
-    ctx.beginPath();
-    ctx.arc(enemy.position.x, enemy.position.y, enemy.iconSize / 2 + 5, 0, Math.PI * 2);
-    ctx.strokeStyle = "#ef4444";
-    ctx.lineWidth = 3 / camera.zoom;
-    ctx.stroke();
+    if (queuedEnemyIds.has(enemy.id)) drawHalo(enemy.position, enemy.iconSize, "#ef4444");
   }
 
   for (const resource of resourceStore.allResources) {
-    if (!queuedResourceIds.has(resource.id)) continue;
-    ctx.beginPath();
-    ctx.arc(resource.position.x, resource.position.y, resource.iconSize / 2 + 5, 0, Math.PI * 2);
-    ctx.strokeStyle = "#eab308";
-    ctx.lineWidth = 3 / camera.zoom;
-    ctx.stroke();
+    if (queuedResourceIds.has(resource.id)) drawHalo(resource.position, resource.iconSize, "#eab308");
+  }
+
+  for (const structure of structureStore.allStructures) {
+    if (queuedStructureIds.has(structure.id)) drawHalo(structure.position, structure.iconSize, "#38bdf8");
   }
 
   // Only render map units (not those inside forts)
@@ -399,6 +397,16 @@ const render = () => {
   }
 
   ctx.restore();
+};
+
+const drawHalo = (position: { x: number; y: number }, iconSize: number, color: string) => {
+  if (!ctx) return;
+
+  ctx.beginPath();
+  ctx.arc(position.x, position.y, iconSize / 2 + 5, 0, Math.PI * 2);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 3 / camera.zoom;
+  ctx.stroke();
 };
 
 const drawHealthBar = (position: { x: number; y: number }, iconSize: number, health: number, maxHealth: number) => {

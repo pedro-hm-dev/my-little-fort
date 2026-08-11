@@ -13,6 +13,7 @@ import { useSelectionStore } from "./selection";
 import { useEffectsStore } from "./effects";
 import { distance } from "@/utils/geometry";
 import { pickAction, rollDamage } from "@/utils/combatEngine";
+import { SpatialGrid } from "@/utils/spatialGrid";
 
 const ACTION_DEFS = actionDefs as unknown as Record<string, ActionDefinition>;
 type EnemyDefKey = keyof typeof enemyDefs;
@@ -24,20 +25,10 @@ interface Target {
 }
 
 export const useCombatStore = defineStore("combat", () => {
-  function findNearestTarget(from: { x: number; y: number }, range: number, candidates: Target[]): Target | null {
-    let nearest: Target | null = null;
-    let nearestDist = range;
-
-    for (const c of candidates) {
-      const d = distance(from, c.position);
-      if (d <= nearestDist) {
-        nearest = c;
-        nearestDist = d;
-      }
-    }
-
-    return nearest;
-  }
+  // Rebuilt once per frame in updateCombat — avoids the O(units x enemies) linear scan that
+  // findUnitTarget/findEnemyTarget/applyImpact's AOE splash would otherwise redo per combatant.
+  const unitGrid = new SpatialGrid<Unit>(150);
+  const enemyGrid = new SpatialGrid<Enemy>(150);
 
   function resolveTarget(id: string, isStructure: boolean): Target | null {
     if (isStructure) {
@@ -69,20 +60,13 @@ export const useCombatStore = defineStore("combat", () => {
       if (enemy && enemy.health > 0) return { id: enemy.id, isStructure: false, position: enemy.position };
     }
 
-    const candidates: Target[] = enemyStore
-      .allEnemies.filter((e) => e.health > 0)
-      .map((e) => ({ id: e.id, isStructure: false, position: e.position }));
-
-    return findNearestTarget(unit.position, unit.combatRange, candidates);
+    const nearest = enemyGrid.findNearest(unit.position.x, unit.position.y, unit.combatRange);
+    return nearest ? { id: nearest.id, isStructure: false, position: nearest.position } : null;
   }
 
   function findEnemyTarget(enemy: Enemy): Target | null {
-    const candidates: Target[] = useUnitStore()
-      .mapUnits.filter((u) => u.health > 0)
-      .map((u) => ({ id: u.id, isStructure: false, position: u.position }));
-
-    const nearestUnit = findNearestTarget(enemy.position, enemy.combatRange, candidates);
-    if (nearestUnit) return nearestUnit;
+    const nearestUnit = unitGrid.findNearest(enemy.position.x, enemy.position.y, enemy.combatRange);
+    if (nearestUnit) return { id: nearestUnit.id, isStructure: false, position: nearestUnit.position };
 
     if (enemy.behavior === "horde") {
       const fort = useStructureStore().getStructure("fort-1");
@@ -167,15 +151,14 @@ export const useCombatStore = defineStore("combat", () => {
     retaliate(target, attacker.id);
 
     if (action.aoeRadius && !target.isStructure) {
-      for (const enemy of useEnemyStore().allEnemies) {
+      for (const enemy of enemyGrid.queryRadius(target.position.x, target.position.y, action.aoeRadius)) {
         if (enemy.id === target.id) continue;
-        if (distance(enemy.position, target.position) <= action.aoeRadius) {
-          const splash = rollDamage(action);
-          enemy.health = Math.max(0, enemy.health - splash.amount);
-          if (enemy.actionIds.length > 0) {
-            enemy.combatTargetId = attacker.id;
-            enemy.combatTargetIsStructure = false;
-          }
+
+        const splash = rollDamage(action);
+        enemy.health = Math.max(0, enemy.health - splash.amount);
+        if (enemy.actionIds.length > 0) {
+          enemy.combatTargetId = attacker.id;
+          enemy.combatTargetIsStructure = false;
         }
       }
     }
@@ -265,6 +248,9 @@ export const useCombatStore = defineStore("combat", () => {
 
     const unitStore = useUnitStore();
     const enemyStore = useEnemyStore();
+
+    unitGrid.rebuild(unitStore.mapUnits.filter((u) => u.health > 0));
+    enemyGrid.rebuild(enemyStore.allEnemies.filter((e) => e.health > 0));
 
     for (const unit of unitStore.mapUnits) {
       if (unit.actionIds.length === 0) continue;
