@@ -173,6 +173,28 @@ export function circleOverlapsLakes(
 }
 
 /**
+ * Check if a circle (e.g. an entity's icon) overlaps a rectangle (e.g. a drag-selection box).
+ * Used instead of a plain center-point-in-rect test so a small drag that merely clips an icon's
+ * edge still counts as a hit — otherwise tiny boxes over a valid target can miss entirely.
+ */
+export function circleIntersectsRect(
+  cx: number,
+  cy: number,
+  radius: number,
+  rectX: number,
+  rectY: number,
+  rectWidth: number,
+  rectHeight: number,
+): boolean {
+  const closestX = clamp(cx, rectX, rectX + rectWidth);
+  const closestY = clamp(cy, rectY, rectY + rectHeight);
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+
+  return dx * dx + dy * dy <= radius * radius;
+}
+
+/**
  * Generate a random position within a margin-constrained area
  */
 export function randomPosition(width: number, height: number, margin: number = 0): Position {

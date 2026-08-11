@@ -123,6 +123,7 @@ import { useGameStore } from "@/stores/game";
 import { useSelectionStore } from "@/stores/selection";
 import { UnitType } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
+import { circleIntersectsRect } from "@/utils/geometry";
 import unitDefs from "@/data/unitDefinitions.json";
 
 type UnitDefKey = keyof typeof unitDefs;
@@ -582,12 +583,16 @@ const handleMouseUp = (e: MouseEvent) => {
     } else if (command === "attack") {
       if (isAreaDrag && dragRect) {
         const enemyIds = enemyStore.allEnemies
-          .filter(
-            (enemy) =>
-              enemy.position.x >= dragRect.x &&
-              enemy.position.x <= dragRect.x + dragRect.width &&
-              enemy.position.y >= dragRect.y &&
-              enemy.position.y <= dragRect.y + dragRect.height,
+          .filter((enemy) =>
+            circleIntersectsRect(
+              enemy.position.x,
+              enemy.position.y,
+              enemy.iconSize / 2,
+              dragRect.x,
+              dragRect.y,
+              dragRect.width,
+              dragRect.height,
+            ),
           )
           .map((enemy) => enemy.id);
 
@@ -607,12 +612,16 @@ const handleMouseUp = (e: MouseEvent) => {
     } else if (command === "gather") {
       if (isAreaDrag && dragRect) {
         const resourceIds = resourceStore.allResources
-          .filter(
-            (resource) =>
-              resource.position.x >= dragRect.x &&
-              resource.position.x <= dragRect.x + dragRect.width &&
-              resource.position.y >= dragRect.y &&
-              resource.position.y <= dragRect.y + dragRect.height,
+          .filter((resource) =>
+            circleIntersectsRect(
+              resource.position.x,
+              resource.position.y,
+              resource.iconSize / 2,
+              dragRect.x,
+              dragRect.y,
+              dragRect.width,
+              dragRect.height,
+            ),
           )
           .map((resource) => resource.id);
 
@@ -658,9 +667,7 @@ const handleMouseUp = (e: MouseEvent) => {
       // Normal box selection — only map units
       const selectedIds: string[] = [];
       for (const unit of unitStore.mapUnits) {
-        const ux = unit.position.x;
-        const uy = unit.position.y;
-        if (ux >= rect.x && ux <= rect.x + rect.width && uy >= rect.y && uy <= rect.y + rect.height) {
+        if (circleIntersectsRect(unit.position.x, unit.position.y, unit.iconSize / 2, rect.x, rect.y, rect.width, rect.height)) {
           selectedIds.push(unit.id);
         }
       }
