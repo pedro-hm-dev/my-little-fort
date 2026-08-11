@@ -12,6 +12,8 @@
 
     <CombatEffects :transform="cameraTransform" />
 
+    <ActionBar />
+
     <div class="absolute top-4 left-4 bg-black/75 backdrop-blur-sm p-3 border border-green-500/25 text-xs font-mono text-green-500 space-y-1">
       <div class="text-green-800">ZOOM <span class="text-green-400">{{ camera.zoom.toFixed(2) }}x</span></div>
       <div class="text-green-800">PAN  <span class="text-green-400">{{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</span></div>
@@ -60,6 +62,17 @@
           </span>
         </div>
         <span class="text-xs font-mono text-yellow-700 tracking-widest uppercase">ESC para cancelar</span>
+      </div>
+    </Transition>
+
+    <!-- Armed action-bar command hint -->
+    <Transition name="hud">
+      <div
+        v-if="activeCommandHint"
+        class="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 border border-yellow-500/60 bg-black/90 font-mono text-xs backdrop-blur-sm pointer-events-none"
+      >
+        <UIcon name="i-lucide-crosshair" class="size-4 text-yellow-400 shrink-0" />
+        <span class="text-yellow-300 uppercase tracking-widest">{{ activeCommandHint }}</span>
       </div>
     </Transition>
 
@@ -152,6 +165,14 @@ const pendingUnitLabel = computed(() => {
   const type = unitStore.pendingReproduction?.targetType;
   if (!type) return "";
   return (unitDefs[type as UnitDefKey] as { label: string })?.label ?? type;
+});
+
+const activeCommandHint = computed(() => {
+  if (selectionStore.activeCommand === "move") return "Clique no mapa para mover";
+  if (selectionStore.activeCommand === "attack") return "Clique em um inimigo ou arraste uma área para atacar em fila";
+  if (selectionStore.activeCommand === "shelter") return "Clique em uma estrutura com capacidade para abrigar";
+  if (selectionStore.activeCommand === "gather") return "Clique em um recurso ou arraste uma área para coletar em fila";
+  return "";
 });
 
 watch(
@@ -304,14 +325,41 @@ const render = () => {
   }
 
   // Halos for selected units
+  const queuedEnemyIds = new Set<string>();
+  const queuedResourceIds = new Set<string>();
+
   for (const unit of unitStore.mapUnits) {
     if (selectionStore.isSelected(unit.id)) {
+      if (unit.combatTargetId && !unit.combatTargetIsStructure) queuedEnemyIds.add(unit.combatTargetId);
+      unit.combatQueue?.forEach((id) => queuedEnemyIds.add(id));
+      if (unit.targetResource) queuedResourceIds.add(unit.targetResource);
+      unit.gatherQueue?.forEach((id) => queuedResourceIds.add(id));
+
       ctx.beginPath();
       ctx.arc(unit.position.x, unit.position.y, unit.iconSize / 2 + 5, 0, Math.PI * 2);
       ctx.strokeStyle = "#FFD700";
       ctx.lineWidth = 3 / camera.zoom;
       ctx.stroke();
     }
+  }
+
+  // Enemies/resources queued by a selected unit's attack or gather order — red for targets, yellow for resources.
+  for (const enemy of enemyStore.allEnemies) {
+    if (!queuedEnemyIds.has(enemy.id)) continue;
+    ctx.beginPath();
+    ctx.arc(enemy.position.x, enemy.position.y, enemy.iconSize / 2 + 5, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ef4444";
+    ctx.lineWidth = 3 / camera.zoom;
+    ctx.stroke();
+  }
+
+  for (const resource of resourceStore.allResources) {
+    if (!queuedResourceIds.has(resource.id)) continue;
+    ctx.beginPath();
+    ctx.arc(resource.position.x, resource.position.y, resource.iconSize / 2 + 5, 0, Math.PI * 2);
+    ctx.strokeStyle = "#eab308";
+    ctx.lineWidth = 3 / camera.zoom;
+    ctx.stroke();
   }
 
   // Only render map units (not those inside forts)
@@ -447,6 +495,10 @@ const handleKeyDown = (e: KeyboardEvent) => {
     if (selectedStructure.value) structurePanelOpen.value = true;
     return;
   }
+  if (e.key === "Escape" && selectionStore.activeCommand) {
+    selectionStore.setActiveCommand(null);
+    return;
+  }
   camera.handleKeyDown(e.key);
 };
 
@@ -477,6 +529,11 @@ const handleMouseMove = (e: MouseEvent) => {
   if (selectionStore.isSelecting) {
     const world = screenToWorld(e.offsetX, e.offsetY);
     selectionStore.updateSelection(world.x, world.y);
+  }
+
+  if (selectionStore.activeCommand) {
+    if (canvasRef.value) canvasRef.value.style.cursor = "crosshair";
+    return;
   }
 
   // Cursor pointer over interactive entities
@@ -511,6 +568,87 @@ const handleMouseMove = (e: MouseEvent) => {
 const handleMouseUp = (e: MouseEvent) => {
   if (e.button !== 0) return;
   if (!selectionStore.isSelecting) return;
+
+  const command = selectionStore.activeCommand;
+  if (command) {
+    const world = screenToWorld(e.offsetX, e.offsetY);
+    const ids = Array.from(selectionStore.selectedUnitIds);
+    const dragRect = selectionStore.getSelectionRect();
+    const isAreaDrag = !!dragRect && dragRect.width > 5 && dragRect.height > 5;
+
+    if (command === "move") {
+      unitStore.moveUnitsTo(ids, world.x, world.y);
+      pingEffect.value = { x: world.x, y: world.y, startTime: Date.now(), duration: 800 };
+    } else if (command === "attack") {
+      if (isAreaDrag && dragRect) {
+        const enemyIds = enemyStore.allEnemies
+          .filter(
+            (enemy) =>
+              enemy.position.x >= dragRect.x &&
+              enemy.position.x <= dragRect.x + dragRect.width &&
+              enemy.position.y >= dragRect.y &&
+              enemy.position.y <= dragRect.y + dragRect.height,
+          )
+          .map((enemy) => enemy.id);
+
+        if (enemyIds.length > 0) unitStore.attackArea(ids, enemyIds);
+      } else {
+        let clickedEnemy = null;
+        for (const enemy of enemyStore.allEnemies) {
+          const dx = world.x - enemy.position.x;
+          const dy = world.y - enemy.position.y;
+          if (dx * dx + dy * dy < (enemy.iconSize / 2) ** 2) {
+            clickedEnemy = enemy;
+            break;
+          }
+        }
+        if (clickedEnemy) unitStore.attackTarget(ids, clickedEnemy.id);
+      }
+    } else if (command === "gather") {
+      if (isAreaDrag && dragRect) {
+        const resourceIds = resourceStore.allResources
+          .filter(
+            (resource) =>
+              resource.position.x >= dragRect.x &&
+              resource.position.x <= dragRect.x + dragRect.width &&
+              resource.position.y >= dragRect.y &&
+              resource.position.y <= dragRect.y + dragRect.height,
+          )
+          .map((resource) => resource.id);
+
+        if (resourceIds.length > 0) unitStore.gatherResources(ids, resourceIds);
+      } else {
+        let clickedResource = null;
+        for (const resource of resourceStore.allResources) {
+          const dx = world.x - resource.position.x;
+          const dy = world.y - resource.position.y;
+          if (dx * dx + dy * dy < (resource.iconSize / 2) ** 2) {
+            clickedResource = resource;
+            break;
+          }
+        }
+        if (clickedResource) unitStore.gatherResource(ids, clickedResource.id);
+      }
+    } else if (command === "shelter") {
+      let clickedStructure = null;
+      for (const structure of structureStore.allStructures) {
+        const dx = world.x - structure.position.x;
+        const dy = world.y - structure.position.y;
+        if (dx * dx + dy * dy < (structure.iconSize / 2) ** 2) {
+          clickedStructure = structure;
+          break;
+        }
+      }
+      if (clickedStructure) {
+        unitStore.shelterUnitsAt(ids, clickedStructure.id);
+        pingEffect.value = { x: clickedStructure.position.x, y: clickedStructure.position.y, startTime: Date.now(), duration: 800 };
+      }
+    }
+
+    selectionStore.setActiveCommand(null);
+    selectionStore.endSelection();
+    return;
+  }
 
   const rect = selectionStore.getSelectionRect();
   const pending = unitStore.pendingReproduction;
@@ -582,27 +720,13 @@ const handleMouseUp = (e: MouseEvent) => {
   selectionStore.endSelection();
 };
 
+/** Right-click is a move shortcut — it only ever moves, never gathers or shelters. */
 const handleContextMenu = (e: MouseEvent) => {
   e.preventDefault();
   if (!selectionStore.hasSelectedUnits()) return;
 
   const world = screenToWorld(e.offsetX, e.offsetY);
-  let clickedResource = null;
-
-  for (const resource of resourceStore.allResources) {
-    const dx = world.x - resource.position.x;
-    const dy = world.y - resource.position.y;
-    if (dx * dx + dy * dy < (resource.iconSize / 2) ** 2) {
-      clickedResource = resource;
-      break;
-    }
-  }
-
-  if (clickedResource) {
-    unitStore.gatherResource(Array.from(selectionStore.selectedUnitIds), clickedResource.id);
-  } else {
-    unitStore.moveUnitsTo(Array.from(selectionStore.selectedUnitIds), world.x, world.y);
-  }
+  unitStore.moveUnitsTo(Array.from(selectionStore.selectedUnitIds), world.x, world.y);
 
   pingEffect.value = {
     x: world.x,

@@ -6,7 +6,8 @@ import { useStructureStore } from "./structures";
 import { useWorldStore } from "./world";
 import { useResourceStore } from "./resources";
 import { useCameraStore } from "./camera";
-import { isInWater } from "@/utils/geometry";
+import { useUnitStore } from "./units";
+import { isInWater, approachPoint, distance } from "@/utils/geometry";
 
 type EnemyDefKey = keyof typeof enemyDefs;
 
@@ -15,6 +16,10 @@ const HORDE_BASE_COUNT = 3;
 const HORDE_PER_DAY = 1.5;
 const HORDE_MAX = 20;
 const TARGET_FRAME_TIME = 1000 / 60;
+
+/** How far (world units) or how long (game ms) an enemy will chase a target it can't catch before giving up. */
+const MAX_CHASE_DISTANCE = 400;
+const MAX_CHASE_TIME_MS = 10_000;
 
 let enemyIdCounter = 100;
 
@@ -30,6 +35,7 @@ function createEnemy(type: EnemyType, position: Position, behavior: "horde" | "a
     iconSize: def.iconSize,
     speed: def.speed,
     swimSpeed: def.swimSpeed,
+    aquatic: (def as { aquatic?: boolean }).aquatic ?? false,
     combatRange: def.combatRange,
     actionIds: [...def.actionIds],
     actionCooldowns: {},
@@ -136,26 +142,64 @@ export const useEnemyStore = defineStore("enemies", () => {
     const worldStore = useWorldStore();
     const structureStore = useStructureStore();
     const fort = structureStore.getStructure("fort-1");
+    const unitStore = useUnitStore();
     const lakesCache = worldStore.allLakes;
     const deltaMultiplier = gameDeltaMs / TARGET_FRAME_TIME;
 
     for (const enemy of enemies.value.values()) {
-      if (enemy.actionLock || enemy.combatTargetId) continue;
+      if (enemy.actionLock) continue;
+
+      if (!enemy.combatTargetId) {
+        enemy.combatAnchor = undefined;
+        enemy.combatAnchorTargetId = undefined;
+        enemy.chaseElapsedMs = undefined;
+      }
 
       let dest: Position | undefined;
 
-      if (enemy.behavior === "horde") {
-        dest = enemy.targetPosition ?? fort?.position;
-      } else if (enemy.homePosition) {
-        if (!enemy.targetPosition) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = Math.random() * 40;
-          enemy.targetPosition = {
-            x: enemy.homePosition.x + Math.cos(angle) * dist,
-            y: enemy.homePosition.y + Math.sin(angle) * dist,
-          };
+      if (enemy.combatTargetId && !enemy.combatTargetIsStructure) {
+        if (enemy.combatAnchorTargetId !== enemy.combatTargetId) {
+          enemy.combatAnchorTargetId = enemy.combatTargetId;
+          enemy.combatAnchor = { ...enemy.position };
+          enemy.chaseElapsedMs = 0;
         }
-        dest = enemy.targetPosition;
+
+        // Chase whoever it's fighting — including a unit that hit it from outside its own range — but
+        // an aquatic enemy never steps onto land to do it; it just holds position until back in range.
+        const target = unitStore.getUnit(enemy.combatTargetId);
+        if (target) {
+          const outOfRange = distance(enemy.position, target.position) > enemy.combatRange;
+          enemy.chaseElapsedMs = outOfRange ? (enemy.chaseElapsedMs ?? 0) + gameDeltaMs : 0;
+
+          const distFromAnchor = enemy.combatAnchor ? distance(enemy.position, enemy.combatAnchor) : 0;
+          const gaveUp = distFromAnchor > MAX_CHASE_DISTANCE || enemy.chaseElapsedMs > MAX_CHASE_TIME_MS;
+
+          if (gaveUp) {
+            enemy.combatTargetId = undefined;
+            enemy.combatTargetIsStructure = undefined;
+            enemy.combatAnchor = undefined;
+            enemy.combatAnchorTargetId = undefined;
+            enemy.chaseElapsedMs = undefined;
+            if (enemy.behavior === "ambient" && enemy.homePosition) enemy.targetPosition = { ...enemy.homePosition };
+          } else {
+            const approach = approachPoint(enemy.position, target.position, enemy.combatRange * 0.9);
+            if (!enemy.aquatic || isInWater(approach.x, approach.y, lakesCache)) dest = approach;
+          }
+        }
+      } else if (!enemy.combatTargetId) {
+        if (enemy.behavior === "horde") {
+          dest = enemy.targetPosition ?? fort?.position;
+        } else if (enemy.homePosition) {
+          if (!enemy.targetPosition) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * 40;
+            enemy.targetPosition = {
+              x: enemy.homePosition.x + Math.cos(angle) * dist,
+              y: enemy.homePosition.y + Math.sin(angle) * dist,
+            };
+          }
+          dest = enemy.targetPosition;
+        }
       }
 
       if (!dest) continue;

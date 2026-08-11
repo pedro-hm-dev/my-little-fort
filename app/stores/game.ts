@@ -5,7 +5,7 @@ import { useEnemyStore } from "./enemies";
 import { useStructureStore } from "./structures";
 
 // Must match FULL_DAY_MS_AT_X1 in time.ts
-const FULL_DAY_GAME_MS = 180_000;
+const FULL_DAY_GAME_MS = 300_000;
 const AMBIENT_CHECK_INTERVAL_MS = FULL_DAY_GAME_MS / 24; // ~once per in-game hour
 const AMBIENT_SPAWN_CHANCE = 0.35;
 

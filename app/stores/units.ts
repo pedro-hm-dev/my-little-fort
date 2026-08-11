@@ -1,18 +1,23 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import { UnitType, type Unit, type Position } from "@/types/Unit";
+import type { Structure } from "@/types/Structure";
+import type { Enemy } from "@/types/Enemy";
+import type { Resource } from "@/types/Resource";
 import unitDefs from "@/data/unitDefinitions.json";
+import structureDefs from "@/data/structureDefinitions.json";
 import { useStructureStore } from "./structures";
 import { useWorldStore } from "./world";
 import { useResourceStore } from "./resources";
 import { useInventoryStore } from "./inventory";
 import { useSelectionStore } from "./selection";
-import { isInWater } from "@/utils/geometry";
+import { useEnemyStore } from "./enemies";
+import { isInWater, distance, approachPoint } from "@/utils/geometry";
 
 const TARGET_FRAME_TIME = 1000 / 60;
 
 // Must match FULL_DAY_MS_AT_X1 in time.ts
-const FULL_DAY_GAME_MS = 180_000;
+const FULL_DAY_GAME_MS = 300_000;
 
 type UnitDefKey = keyof typeof unitDefs;
 
@@ -116,6 +121,13 @@ export const useUnitStore = defineStore("units", () => {
     const selectionStore = useSelectionStore();
     if (!unit || unit.insideFortId) return;
 
+    const structureStore = useStructureStore();
+    const fort = structureStore.getStructure(fortId);
+    if (!fort) return;
+
+    const def = structureDefOf(fort);
+    if (structureOccupancy(fortId) >= (def.maxOccupancy ?? Infinity)) return;
+
     pendingReproduction.value = null;
 
     selectionStore.deselectUnit(unitId);
@@ -131,8 +143,8 @@ export const useUnitStore = defineStore("units", () => {
     });
   }
 
-  /** Cancel reproduction — unit exits the fort immediately at its entrance. */
-  function cancelReproduction(unitId: string) {
+  /** Exit the fort immediately at its entrance — cancels any in-progress reproduction too. */
+  function exitShelter(unitId: string) {
     const unit = units.value.get(unitId);
     if (!unit || !unit.insideFortId) return;
 
@@ -270,6 +282,165 @@ export const useUnitStore = defineStore("units", () => {
     }
   }
 
+  /** Order units to engage an enemy: close to 90% of their combat range, then let the combat store take over. */
+  function attackTarget(unitIds: string[], enemyId: string) {
+    const enemyStore = useEnemyStore();
+    const enemy = enemyStore.getEnemy(enemyId);
+    if (!enemy) return;
+
+    unitIds.forEach((id) => {
+      const unit = units.value.get(id);
+      if (!unit || unit.insideFortId) return;
+      if (unit.combatRange <= 0 || unit.actionIds.length === 0) return;
+
+      units.value.set(id, {
+        ...unit,
+        targetResource: undefined,
+        gatherProgress: undefined,
+        gatherQueue: undefined,
+        shelterTargetId: undefined,
+        combatTargetId: enemyId,
+        combatTargetIsStructure: false,
+        combatQueue: undefined,
+        targetPosition: approachPoint(unit.position, enemy.position, unit.combatRange * 0.9),
+      });
+    });
+  }
+
+  /** Queue a set of enemies (e.g. from an area selection) for each unit, nearest first, and engage the closest. */
+  function attackArea(unitIds: string[], enemyIds: string[]) {
+    const enemyStore = useEnemyStore();
+    const enemies = enemyIds.map((id) => enemyStore.getEnemy(id)).filter((e): e is Enemy => !!e);
+    if (enemies.length === 0) return;
+
+    unitIds.forEach((id) => {
+      const unit = units.value.get(id);
+      if (!unit || unit.insideFortId) return;
+      if (unit.combatRange <= 0 || unit.actionIds.length === 0) return;
+
+      const sorted = [...enemies].sort(
+        (a, b) => distance(unit.position, a.position) - distance(unit.position, b.position),
+      );
+      const [first, ...rest] = sorted;
+      if (!first) return;
+
+      units.value.set(id, {
+        ...unit,
+        targetResource: undefined,
+        gatherProgress: undefined,
+        gatherQueue: undefined,
+        shelterTargetId: undefined,
+        combatTargetId: first.id,
+        combatTargetIsStructure: false,
+        combatQueue: rest.map((e) => e.id),
+        targetPosition: approachPoint(unit.position, first.position, unit.combatRange * 0.9),
+      });
+    });
+  }
+
+  /** Pops the next reachable resource off a unit's gather queue, or clears gathering state if none remain. */
+  function nextGatherState(gatherQueue: string[] | undefined): Partial<Unit> {
+    const resourceStore = useResourceStore();
+    const queue = gatherQueue ? [...gatherQueue] : [];
+
+    while (queue.length > 0) {
+      const nextId = queue.shift();
+      if (!nextId) continue;
+
+      const resource = resourceStore.getResource(nextId);
+      if (resource) {
+        return {
+          targetResource: nextId,
+          targetPosition: { ...resource.position },
+          gatherProgress: 0,
+          gatherQueue: queue.length > 0 ? queue : undefined,
+        };
+      }
+    }
+
+    return { targetResource: undefined, targetPosition: undefined, gatherProgress: undefined, gatherQueue: undefined };
+  }
+
+  /** Queue a set of resources (e.g. from an area selection) for each unit, nearest first, and start gathering. */
+  function gatherResources(unitIds: string[], resourceIds: string[]) {
+    const resourceStore = useResourceStore();
+    const resources = resourceIds.map((id) => resourceStore.getResource(id)).filter((r): r is Resource => !!r);
+    if (resources.length === 0) return;
+
+    unitIds.forEach((id) => {
+      const unit = units.value.get(id);
+      if (!unit || unit.insideFortId) return;
+
+      const sorted = [...resources].sort(
+        (a, b) => distance(unit.position, a.position) - distance(unit.position, b.position),
+      );
+      const [first, ...rest] = sorted;
+      if (!first) return;
+
+      units.value.set(id, {
+        ...unit,
+        combatTargetId: undefined,
+        combatTargetIsStructure: undefined,
+        combatQueue: undefined,
+        shelterTargetId: undefined,
+        targetPosition: { ...first.position },
+        targetResource: first.id,
+        gatherProgress: 0,
+        gatherQueue: rest.map((r) => r.id),
+      });
+    });
+  }
+
+  /** Queue every resource currently on the map for each unit, nearest first, and start gathering. */
+  function gatherAll(unitIds: string[]) {
+    const resourceStore = useResourceStore();
+    gatherResources(unitIds, resourceStore.allResources.map((r) => r.id));
+  }
+
+  /** Definition of a structure's type, for capacity/eligibility lookups. */
+  function structureDefOf(structure: Structure) {
+    return structureDefs[structure.type as keyof typeof structureDefs] as {
+      canReproduce?: string[];
+      maxOccupancy?: number;
+    };
+  }
+
+  /** Units currently occupying a structure: already inside it, plus those already walking toward it to shelter. */
+  function structureOccupancy(structureId: string): number {
+    return allUnits.value.filter((u) => u.insideFortId === structureId || u.shelterTargetId === structureId).length;
+  }
+
+  /** Send units to take shelter inside a specific structure, skipping any that don't fit or that it doesn't have room for. */
+  function shelterUnitsAt(unitIds: string[], structureId: string) {
+    const structureStore = useStructureStore();
+    const structure = structureStore.getStructure(structureId);
+    if (!structure) return;
+
+    const def = structureDefOf(structure);
+    const maxOccupancy = def.maxOccupancy ?? Infinity;
+    let occupancy = structureOccupancy(structureId);
+
+    unitIds.forEach((id) => {
+      const unit = units.value.get(id);
+      if (!unit || unit.insideFortId) return;
+      if (!def.canReproduce?.includes(unit.type)) return;
+      if (occupancy >= maxOccupancy) return;
+
+      occupancy++;
+
+      units.value.set(id, {
+        ...unit,
+        targetResource: undefined,
+        gatherProgress: undefined,
+        gatherQueue: undefined,
+        combatTargetId: undefined,
+        combatTargetIsStructure: undefined,
+        shelterTargetId: structure.id,
+        targetPosition: { ...structure.position },
+      });
+    });
+  }
+
   function updateUnitPositions(gameDeltaMs: number) {
     const resourceStore = useResourceStore();
     const inventoryStore = useInventoryStore();
@@ -283,12 +454,7 @@ export const useUnitStore = defineStore("units", () => {
       if (unit.targetResource) {
         const resource = resourceStore.getResource(unit.targetResource);
         if (!resource) {
-          units.value.set(unit.id, {
-            ...unit,
-            targetResource: undefined,
-            targetPosition: undefined,
-            gatherProgress: undefined,
-          });
+          units.value.set(unit.id, { ...unit, ...nextGatherState(unit.gatherQueue) });
           continue;
         }
 
@@ -305,12 +471,7 @@ export const useUnitStore = defineStore("units", () => {
             inventoryStore.addResource(resource.type, 1);
 
             if (depleted) {
-              units.value.set(unit.id, {
-                ...unit,
-                targetResource: undefined,
-                targetPosition: undefined,
-                gatherProgress: undefined,
-              });
+              units.value.set(unit.id, { ...unit, ...nextGatherState(unit.gatherQueue) });
             } else {
               units.value.set(unit.id, { ...unit, gatherProgress: 0 });
             }
@@ -318,6 +479,15 @@ export const useUnitStore = defineStore("units", () => {
             units.value.set(unit.id, { ...unit, gatherProgress: newProgress });
           }
           continue;
+        }
+      }
+
+      // Chase an attack order to 90% of combat range; stand still mid-swing.
+      if (unit.combatTargetId && !unit.combatTargetIsStructure && !unit.actionLock) {
+        const enemyStore = useEnemyStore();
+        const target = enemyStore.getEnemy(unit.combatTargetId);
+        if (target) {
+          unit.targetPosition = approachPoint(unit.position, target.position, unit.combatRange * 0.9);
         }
       }
 
@@ -330,6 +500,12 @@ export const useUnitStore = defineStore("units", () => {
       if (dist < 2) {
         unit.position.x = unit.targetPosition.x;
         unit.position.y = unit.targetPosition.y;
+
+        if (unit.shelterTargetId) {
+          units.value.set(unit.id, { ...unit, insideFortId: unit.shelterTargetId, shelterTargetId: undefined, targetPosition: undefined });
+          continue;
+        }
+
         if (!unit.targetResource) unit.targetPosition = undefined;
       } else {
         const inLake = isInWater(unit.position.x, unit.position.y, lakesCache);
@@ -359,10 +535,15 @@ export const useUnitStore = defineStore("units", () => {
     getUnit,
     updateUnit,
     startReproduction,
-    cancelReproduction,
+    exitShelter,
     updateFortUnits,
     moveUnitsTo,
     gatherResource,
+    gatherResources,
+    attackTarget,
+    attackArea,
+    gatherAll,
+    shelterUnitsAt,
     updateUnitPositions,
     initialize,
     pendingReproduction,

@@ -1,11 +1,20 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
 
+export type ActiveCommand = "move" | "attack" | "shelter" | "gather" | null;
+
 export const useSelectionStore = defineStore("selection", () => {
   const selectedUnitIds = ref<Set<string>>(new Set());
   const isSelecting = ref(false);
   const selectionStart = ref<{ x: number; y: number } | null>(null);
   const selectionEnd = ref<{ x: number; y: number } | null>(null);
+
+  /** Armed action-bar command awaiting a target click on the map ("move" / "attack"). */
+  const activeCommand = ref<ActiveCommand>(null);
+
+  function setActiveCommand(command: ActiveCommand) {
+    activeCommand.value = command;
+  }
 
   function hasSelectedUnits(): boolean {
     return selectedUnitIds.value.size > 0;
@@ -13,16 +22,19 @@ export const useSelectionStore = defineStore("selection", () => {
 
   function selectUnit(unitId: string) {
     selectedUnitIds.value.add(unitId);
+    activeCommand.value = null;
   }
 
   function selectUnits(unitIds: string[]) {
     selectedUnitIds.value.clear();
 
     unitIds.forEach((id) => selectedUnitIds.value.add(id));
+    activeCommand.value = null;
   }
 
   function deselectAll() {
     selectedUnitIds.value.clear();
+    activeCommand.value = null;
   }
 
   function deselectUnit(unitId: string) {
@@ -68,6 +80,8 @@ export const useSelectionStore = defineStore("selection", () => {
     isSelecting,
     selectionStart,
     selectionEnd,
+    activeCommand,
+    setActiveCommand,
     hasSelectedUnits,
     selectUnit,
     selectUnits,

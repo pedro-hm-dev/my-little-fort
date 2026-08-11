@@ -59,7 +59,17 @@ export const useCombatStore = defineStore("combat", () => {
   }
 
   function findUnitTarget(unit: Unit): Target | null {
-    const candidates: Target[] = useEnemyStore()
+    const enemyStore = useEnemyStore();
+
+    // An area-attack order queues the rest of its targets here, nearest first — work through it before
+    // falling back to auto-aggro on whatever wanders into range.
+    while (unit.combatQueue && unit.combatQueue.length > 0) {
+      const nextId = unit.combatQueue.shift();
+      const enemy = nextId ? enemyStore.getEnemy(nextId) : undefined;
+      if (enemy && enemy.health > 0) return { id: enemy.id, isStructure: false, position: enemy.position };
+    }
+
+    const candidates: Target[] = enemyStore
       .allEnemies.filter((e) => e.health > 0)
       .map((e) => ({ id: e.id, isStructure: false, position: e.position }));
 
@@ -102,6 +112,26 @@ export const useCombatStore = defineStore("combat", () => {
     if (enemy) enemy.health = Math.max(0, enemy.health - amount);
   }
 
+  /** A hit combatant always turns to fight back — structures can't, and units with no weapon can't either. */
+  function retaliate(target: Target, attackerId: string) {
+    if (target.isStructure || target.id === attackerId) return;
+
+    const unit = useUnitStore().getUnit(target.id);
+    if (unit) {
+      if (unit.actionIds.length > 0) {
+        unit.combatTargetId = attackerId;
+        unit.combatTargetIsStructure = false;
+      }
+      return;
+    }
+
+    const enemy = useEnemyStore().getEnemy(target.id);
+    if (enemy && enemy.actionIds.length > 0) {
+      enemy.combatTargetId = attackerId;
+      enemy.combatTargetIsStructure = false;
+    }
+  }
+
   function spawnActionVfx(action: ActionDefinition, attackerPos: { x: number; y: number }, target: Target) {
     const effectsStore = useEffectsStore();
 
@@ -129,11 +159,12 @@ export const useCombatStore = defineStore("combat", () => {
     }
   }
 
-  function applyImpact(action: ActionDefinition, attackerPos: { x: number; y: number }, target: Target) {
+  function applyImpact(action: ActionDefinition, attacker: Combatant, target: Target) {
     const effectsStore = useEffectsStore();
     const { amount, crit } = rollDamage(action);
 
     applyDamage(target, amount);
+    retaliate(target, attacker.id);
 
     if (action.aoeRadius && !target.isStructure) {
       for (const enemy of useEnemyStore().allEnemies) {
@@ -141,11 +172,15 @@ export const useCombatStore = defineStore("combat", () => {
         if (distance(enemy.position, target.position) <= action.aoeRadius) {
           const splash = rollDamage(action);
           enemy.health = Math.max(0, enemy.health - splash.amount);
+          if (enemy.actionIds.length > 0) {
+            enemy.combatTargetId = attacker.id;
+            enemy.combatTargetIsStructure = false;
+          }
         }
       }
     }
 
-    spawnActionVfx(action, attackerPos, target);
+    spawnActionVfx(action, attacker.position, target);
     effectsStore.spawn({
       kind: "damageNumber",
       x: target.position.x,
@@ -180,7 +215,7 @@ export const useCombatStore = defineStore("combat", () => {
         if (!lock.impactApplied && lock.elapsedMs >= def.impactMs) {
           lock.impactApplied = true;
           const target = resolveTarget(lock.targetId, lock.targetIsStructure);
-          if (target) applyImpact(def, combatant.position, target);
+          if (target) applyImpact(def, combatant, target);
         }
 
         if (lock.elapsedMs >= def.animationMs) combatant.actionLock = undefined;

@@ -61,6 +61,7 @@
     "combatRange": 35,
     "actionIds": ["lungeBite"],
     "behavior": "ambient",
+    "aquatic": true,
     "lootTable": [
       { "type": "meat", "chance": 0.7, "amount": [1, 2] }
     ]

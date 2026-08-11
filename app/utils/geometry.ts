@@ -190,6 +190,20 @@ export function angleBetween(from: Position, to: Position): number {
 }
 
 /**
+ * Point on the segment from `targetPos` toward `unitPos`, `standoff` units away from the target.
+ * Used to approach a combat target and stop just inside weapon range instead of walking into it.
+ */
+export function approachPoint(unitPos: Position, targetPos: Position, standoff: number): Position {
+  const dx = unitPos.x - targetPos.x;
+  const dy = unitPos.y - targetPos.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+
+  if (dist <= standoff || dist === 0) return { ...unitPos };
+
+  return { x: targetPos.x + (dx / dist) * standoff, y: targetPos.y + (dy / dist) * standoff };
+}
+
+/**
  * Check if two circles overlap
  */
 export function circlesOverlap(

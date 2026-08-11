@@ -2,7 +2,10 @@
   <div class="font-mono">
     <!-- Units inside fort -->
     <div v-if="inFort.length > 0" class="px-4 pt-4 pb-2 space-y-2">
-      <p class="text-xs text-green-800 uppercase tracking-widest mb-2">No forte</p>
+      <p class="text-xs text-green-800 uppercase tracking-widest mb-2 flex items-baseline justify-between">
+        <span>No forte</span>
+        <span v-if="maxOccupancy !== undefined" class="text-green-700">{{ inFort.length }} / {{ maxOccupancy }}</span>
+      </p>
       <div
         v-for="unit in inFort"
         :key="unit.id"
@@ -18,24 +21,33 @@
             <span class="text-xs text-green-300 uppercase tracking-widest">{{ unitLabel(unit.type) }}</span>
             <span class="text-xs text-green-700">{{ reproTimeLeft(unit) }}</span>
           </div>
-          <div class="h-px w-full bg-green-950">
-            <div
-              class="h-full bg-green-500 transition-all duration-300"
-              :style="{ width: Math.round((unit.reproductionProgress || 0) * 100) + '%' }"
-            />
-          </div>
-          <div class="flex items-center gap-3 text-xs text-green-800">
+          <template v-if="unit.reproductionProgress !== undefined">
+            <div class="h-px w-full bg-green-950">
+              <div
+                class="h-full bg-green-500 transition-all duration-300"
+                :style="{ width: Math.round(unit.reproductionProgress * 100) + '%' }"
+              />
+            </div>
+            <div class="flex items-center gap-3 text-xs text-green-800">
+              <span class="flex items-center gap-1">
+                <UIcon name="i-lucide-heart" class="size-3 text-red-800" />
+                {{ Math.round(unit.health) }}/{{ unit.maxHealth }}
+              </span>
+              <span>{{ Math.round(unit.reproductionProgress * 100) }}% reproduzido</span>
+            </div>
+          </template>
+          <div v-else class="flex items-center gap-3 text-xs text-green-800">
             <span class="flex items-center gap-1">
               <UIcon name="i-lucide-heart" class="size-3 text-red-800" />
               {{ Math.round(unit.health) }}/{{ unit.maxHealth }}
             </span>
-            <span>{{ Math.round((unit.reproductionProgress || 0) * 100) }}% reproduzido</span>
+            <span class="uppercase tracking-widest text-green-700">Abrigado</span>
           </div>
         </div>
         <button
           class="p-1 text-green-900 hover:text-red-500 transition-colors shrink-0"
-          title="Cancelar"
-          @click="unitStore.cancelReproduction(unit.id)"
+          :title="unit.reproductionProgress !== undefined ? 'Cancelar' : 'Sair'"
+          @click="unitStore.exitShelter(unit.id)"
         >
           <UIcon name="i-lucide-x" class="size-3.5" />
         </button>
@@ -46,7 +58,10 @@
 
     <!-- Recruitable unit types -->
     <div class="px-4 pb-4 pt-3 space-y-1.5">
-      <p class="text-xs text-green-800 uppercase tracking-widest mb-3">Recrutar</p>
+      <p class="text-xs text-green-800 uppercase tracking-widest mb-3 flex items-baseline justify-between">
+        <span>Recrutar</span>
+        <span v-if="isFull" class="text-red-800">Lotado</span>
+      </p>
 
       <div
         v-for="type in canReproduce"
@@ -66,7 +81,13 @@
           </div>
         </div>
         <button
-          class="shrink-0 px-2 py-1 text-xs font-mono border border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20 transition-colors uppercase tracking-widest"
+          class="shrink-0 px-2 py-1 text-xs font-mono border transition-colors uppercase tracking-widest"
+          :class="
+            isFull
+              ? 'border-green-900/30 text-green-900 opacity-40 cursor-not-allowed'
+              : 'border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20'
+          "
+          :disabled="isFull"
           @click="unitStore.startPendingReproduction(structure.id, type as UnitType)"
         >
           reproduzir
@@ -91,8 +112,10 @@ const unitStore = useUnitStore();
 
 const structureDef = computed(() => structureDefs[props.structure.type as keyof typeof structureDefs]);
 const canReproduce = computed(() => (structureDef.value as { canReproduce?: string[] }).canReproduce ?? []);
+const maxOccupancy = computed(() => (structureDef.value as { maxOccupancy?: number }).maxOccupancy);
 
 const inFort = computed(() => unitStore.unitsInsideFort(props.structure.id));
+const isFull = computed(() => maxOccupancy.value !== undefined && inFort.value.length >= maxOccupancy.value);
 
 function unitLabel(type: string): string {
   return (unitDefs[type as UnitDefKey] as { label: string })?.label ?? type;

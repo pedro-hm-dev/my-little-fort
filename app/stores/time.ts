@@ -4,8 +4,8 @@ import { defineStore } from "pinia";
 export type TimeSpeed = 0 | 1 | 2 | 5 | 10;
 export type TimePhase = "dawn" | "day" | "dusk" | "night";
 
-/** At x1 speed, one full day cycle lasts 3 real minutes. */
-const FULL_DAY_MS_AT_X1 = 180_000;
+/** At x1 speed, one full day cycle lasts 5 real minutes. */
+const FULL_DAY_MS_AT_X1 = 300_000;
 
 export const useTimeStore = defineStore("time", () => {
   /** Fraction of the current day: 0 = midnight, 0.25 = dawn, 0.5 = noon, 0.75 = dusk. */

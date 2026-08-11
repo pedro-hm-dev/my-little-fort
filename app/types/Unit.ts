@@ -7,6 +7,10 @@ export interface Unit {
   targetPosition?: Position;
   targetResource?: string;
   gatherProgress?: number;
+  /** Remaining resource ids to gather in order, after targetResource, from a "gather all" command. */
+  gatherQueue?: string[];
+  /** Structure this unit is walking toward to take shelter in; consumed on arrival. */
+  shelterTargetId?: string;
   health: number;
   maxHealth: number;
   iconName: string;
@@ -31,6 +35,8 @@ export interface Unit {
   actionLock?: ActionLock;
   combatTargetId?: string;
   combatTargetIsStructure?: boolean;
+  /** Remaining enemy ids to engage in order, after combatTargetId, from an area-attack command. */
+  combatQueue?: string[];
 }
 
 export enum UnitType {
