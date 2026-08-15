@@ -126,5 +126,21 @@
     "maxRange": 35,
     "vfx": "bite",
     "weight": 1
+  },
+
+  "maul": {
+    "id": "maul",
+    "label": "Dilacerar",
+    "kind": "melee",
+    "damage": [12, 20],
+    "critChance": 0.12,
+    "critMultiplier": 2,
+    "cooldownMs": 1400,
+    "animationMs": 650,
+    "impactMs": 320,
+    "minRange": 0,
+    "maxRange": 45,
+    "vfx": "slash",
+    "weight": 1
   }
 }

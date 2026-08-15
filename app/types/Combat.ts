@@ -58,7 +58,7 @@ export interface LootDrop {
 
 export interface EffectSpec {
   id: string;
-  kind: ActionVfx | "damageNumber";
+  kind: ActionVfx | "damageNumber" | "gatherNumber";
   x: number;
   y: number;
   targetX?: number;
@@ -66,4 +66,8 @@ export interface EffectSpec {
   amount?: number;
   crit?: boolean;
   durationMs: number;
+  /** gatherNumber only — icon shown next to the "+amount" text. */
+  iconName?: string;
+  /** Small random horizontal jitter so simultaneous pops at the same spot don't perfectly overlap. */
+  offsetX?: number;
 }

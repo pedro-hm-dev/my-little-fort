@@ -15,6 +15,58 @@ export function distance(a: { x: number; y: number }, b: { x: number; y: number 
 }
 
 /**
+ * `count` angles evenly spread around a full circle, sharing one random overall rotation and a
+ * small per-slot jitter — used to spread a group of units around a shared target (attack/gather)
+ * instead of every unit converging on the exact same point.
+ */
+export function evenlySpacedAngles(count: number, jitterFraction: number = 0.25): number[] {
+  if (count <= 0) return [];
+
+  const baseAngle = Math.random() * Math.PI * 2;
+  const slice = (Math.PI * 2) / count;
+  const angles: number[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const jitter = (Math.random() - 0.5) * slice * jitterFraction;
+    angles.push(baseAngle + slice * i + jitter);
+  }
+
+  return angles;
+}
+
+/**
+ * Shortest distance from a point to a line segment.
+ */
+export function distanceToSegment(point: Position, a: Position, b: Position): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+
+  if (lengthSq === 0) return distance(point, a);
+
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSq));
+  const closest = { x: a.x + t * dx, y: a.y + t * dy };
+
+  return distance(point, closest);
+}
+
+/**
+ * Shortest distance from a point to a polyline (e.g. a river's centerline).
+ */
+export function distanceToPolyline(point: Position, path: Position[]): number {
+  let min = Infinity;
+
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    if (!a || !b) continue;
+    min = Math.min(min, distanceToSegment(point, a, b));
+  }
+
+  return min;
+}
+
+/**
  * Calculate squared distance (faster when you don't need the actual distance)
  */
 export function distanceSquared(a: { x: number; y: number }, b: { x: number; y: number }): number {

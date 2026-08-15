@@ -40,6 +40,9 @@ let globalRng = new SeededRandom();
 
 export function setGlobalSeed(seed: number): void {
   globalRng = new SeededRandom(seed);
+  // Re-shuffle the permutation table too — otherwise the noise field itself never changes between
+  // worlds (only the RNG-driven placement does), since it was previously only ever initialized once.
+  initPermutation(globalRng);
 }
 
 export function getSeededRandom(): SeededRandom {

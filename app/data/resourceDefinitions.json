@@ -8,6 +8,9 @@
     "gatherTime": 7,
     "scatterRadius": 20,
     "possibleTerrainTypes": ["land"],
+    "preferredBiomes": ["forest", "grassland"],
+    "excludedBiomes": ["desert"],
+    "denseBiomes": ["forest"],
     "spawning": {
       "mode": "cluster",
       "clusterSize": [3, 8],
@@ -25,6 +28,7 @@
     "gatherTime": 10,
     "scatterRadius": 15,
     "possibleTerrainTypes": ["land", "water"],
+    "preferredBiomes": ["mountain", "desert"],
     "spawning": {
       "mode": "shore",
       "shoreDistance": [20, 100],
@@ -43,6 +47,7 @@
     "gatherTime": 10,
     "scatterRadius": 10,
     "possibleTerrainTypes": ["land", "water"],
+    "preferredBiomes": ["mountain", "desert"],
     "spawning": {
       "mode": "shore",
       "shoreDistance": [15, 80],
@@ -57,10 +62,11 @@
     "amountRange": [10, 40],
     "iconName": "gold-nuggets",
     "iconSize": 35,
-    "rarity": 10,
+    "rarity": 8,
     "gatherTime": 12,
     "scatterRadius": 100,
     "possibleTerrainTypes": ["land", "water"],
+    "preferredBiomes": ["mountain", "desert"],
     "spawning": {
       "mode": "random",
       "clusterChance": 0.2,
@@ -68,10 +74,10 @@
     }
   },
 
-  "algae": {
-    "type": "food",
+  "fish": {
+    "type": "fish",
     "amountRange": [10, 25],
-    "iconName": "algae",
+    "iconName": "school-of-fish",
     "iconSize": 30,
     "rarity": 2,
     "gatherTime": 5,
@@ -79,13 +85,13 @@
     "possibleTerrainTypes": ["water"],
     "spawning": {
       "mode": "random",
-      "clusterChance": 0.5,
-      "clusterRadius": 60
+      "clusterChance": 0.7,
+      "clusterRadius": 80
     }
   },
 
   "mushrooms": {
-    "type": "food",
+    "type": "mushroom",
     "amountRange": [15, 35],
     "iconName": "mushrooms",
     "iconSize": 40,
@@ -93,11 +99,31 @@
     "gatherTime": 4,
     "scatterRadius": 30,
     "possibleTerrainTypes": ["land"],
+    "preferredBiomes": ["forest"],
+    "excludedBiomes": ["desert"],
     "spawning": {
       "mode": "cluster",
       "clusterSize": [2, 5],
       "clusterRadius": 80,
       "clusterChance": 0.6
+    }
+  },
+
+  "cactus": {
+    "type": "cactus",
+    "amountRange": [10, 25],
+    "iconName": "cactus",
+    "iconSize": 45,
+    "rarity": 2,
+    "gatherTime": 5,
+    "scatterRadius": 25,
+    "possibleTerrainTypes": ["land"],
+    "requiredBiomes": ["desert"],
+    "spawning": {
+      "mode": "cluster",
+      "clusterSize": [2, 4],
+      "clusterRadius": 90,
+      "clusterChance": 0.5
     }
   }
 }

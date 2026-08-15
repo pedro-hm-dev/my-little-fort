@@ -4,6 +4,7 @@ import { ResourceType, type Resource, TerrainType } from "@/types/Resource";
 import resourceDefs from "@/data/resourceDefinitions.json";
 import { useCameraStore } from "@/stores/camera";
 import { useWorldStore } from "@/stores/world";
+import type { BiomeType } from "@/types/Terrain";
 import { distance, isInWater, circlesOverlap } from "@/utils/geometry";
 import { getSeededRandom } from "@/utils/noise";
 import { SpatialGrid } from "@/utils/spatialGrid";
@@ -15,6 +16,10 @@ const GENERATION_CONFIG = {
   mapMargin: 120,
   maxPlacementAttempts: 30,
 } as const;
+
+// Applied to a resource's own clusterChance/clusterSize when the cluster center falls in one of its `denseBiomes`.
+const DENSE_CLUSTER_CHANCE_MULTIPLIER = 1.4;
+const DENSE_CLUSTER_SIZE_MULTIPLIER = 1.7;
 
 export const useResourceStore = defineStore("resources", () => {
   const resources = ref<Map<string, Resource>>(new Map());
@@ -70,7 +75,7 @@ export const useResourceStore = defineStore("resources", () => {
     resources.value.clear();
     spatialGrid.value.clear();
 
-    const generatedResources = generateResources(width, height, worldStore.allLakes, fortPosition);
+    const generatedResources = generateResources(width, height, worldStore.allWaterBodies, fortPosition, worldStore.biomeAt);
 
     for (const res of generatedResources) {
       resources.value.set(res.id, res);
@@ -110,6 +115,14 @@ interface ResourceDefinition {
   gatherTime: number;
   scatterRadius: number;
   possibleTerrainTypes: string[];
+  /** Biomes this resource is common in — outside of these it can still spawn, just much rarer. */
+  preferredBiomes?: string[];
+  /** Biomes this resource can NEVER spawn in — a hard gate, unlike preferredBiomes' soft rarity. */
+  excludedBiomes?: string[];
+  /** If set, this resource can ONLY spawn in these biomes — the inverse of excludedBiomes. */
+  requiredBiomes?: string[];
+  /** Biomes where this resource clusters more densely (bigger/likelier clusters). */
+  denseBiomes?: string[];
   spawning?: SpawningConfig;
 }
 
@@ -135,6 +148,7 @@ function generateResources(
   height: number,
   lakes: LakeData[],
   fortPosition: { x: number; y: number },
+  biomeAt: (x: number, y: number) => BiomeType,
 ): Resource[] {
   const rng = getSeededRandom();
   const allResources: Resource[] = [];
@@ -154,6 +168,7 @@ function generateResources(
       targetCount,
       rng,
       placedPositions,
+      biomeAt,
     });
 
     allResources.push(...typeResources);
@@ -169,6 +184,7 @@ interface GenerateContext {
   fortPosition: { x: number; y: number };
   def: ResourceDefinition;
   spawning: SpawningConfig;
+  biomeAt: (x: number, y: number) => BiomeType;
   targetCount: number;
   rng: RNG;
   placedPositions: PlacedPosition[];
@@ -195,7 +211,7 @@ function generateResourceType(ctx: GenerateContext): Resource[] {
  * Modo CLUSTER: Gera recursos em grupos/clusters
  */
 function generateClusterMode(ctx: GenerateContext): Resource[] {
-  const { width, height, lakes, fortPosition, def, spawning, targetCount, rng, placedPositions } = ctx;
+  const { width, height, lakes, fortPosition, def, spawning, targetCount, rng, placedPositions, biomeAt } = ctx;
   const resources: Resource[] = [];
 
   const clusterSize = spawning.clusterSize || [3, 6];
@@ -228,9 +244,20 @@ function generateClusterMode(ctx: GenerateContext): Resource[] {
     if (distance({ x: cx, y: cy }, fortPosition) < GENERATION_CONFIG.fortClearRadius + clusterRadius)
       continue;
 
+    // Denser clustering in this resource's favorite biomes (e.g. trees in forest, wolves-adjacent
+    // wood too) — bigger clusters, and more likely to cluster at all instead of a lone spawn.
+    const isDense = def.denseBiomes?.includes(biomeAt(cx, cy)) ?? false;
+    const effectiveChance = isDense ? Math.min(1, clusterChance * DENSE_CLUSTER_CHANCE_MULTIPLIER) : clusterChance;
+    const effectiveSize: [number, number] = isDense
+      ? [
+          Math.round(clusterSize[0] * DENSE_CLUSTER_SIZE_MULTIPLIER),
+          Math.round(clusterSize[1] * DENSE_CLUSTER_SIZE_MULTIPLIER),
+        ]
+      : clusterSize;
+
     // Decide se vai fazer cluster ou spawn individual
-    const doCluster = rng.next() < clusterChance;
-    const itemsInCluster = doCluster ? rng.intRange(clusterSize[0], clusterSize[1]) : 1;
+    const doCluster = rng.next() < effectiveChance;
+    const itemsInCluster = doCluster ? rng.intRange(effectiveSize[0], effectiveSize[1]) : 1;
 
     for (let i = 0; i < itemsInCluster && totalPlaced < targetCount; i++) {
       const angle = rng.next() * Math.PI * 2;
@@ -250,6 +277,7 @@ function generateClusterMode(ctx: GenerateContext): Resource[] {
         height,
         rng,
         totalPlaced,
+        biomeAt,
       );
       if (placed) {
         resources.push(placed);
@@ -266,7 +294,7 @@ function generateClusterMode(ctx: GenerateContext): Resource[] {
  * Modo SHORE: Gera recursos preferencialmente perto de lagos
  */
 function generateShoreMode(ctx: GenerateContext): Resource[] {
-  const { width, height, lakes, fortPosition, def, spawning, targetCount, rng, placedPositions } = ctx;
+  const { width, height, lakes, fortPosition, def, spawning, targetCount, rng, placedPositions, biomeAt } = ctx;
   const resources: Resource[] = [];
 
   const shoreDistance = spawning.shoreDistance || [20, 100];
@@ -317,6 +345,7 @@ function generateShoreMode(ctx: GenerateContext): Resource[] {
       height,
       rng,
       placed,
+      biomeAt,
     );
     if (resource) {
       resources.push(resource);
@@ -332,7 +361,7 @@ function generateShoreMode(ctx: GenerateContext): Resource[] {
  * Modo RANDOM: Gera recursos aleatoriamente com clustering opcional
  */
 function generateRandomMode(ctx: GenerateContext): Resource[] {
-  const { width, height, lakes, fortPosition, def, spawning, targetCount, rng, placedPositions } = ctx;
+  const { width, height, lakes, fortPosition, def, spawning, targetCount, rng, placedPositions, biomeAt } = ctx;
   const resources: Resource[] = [];
 
   const clusterChance = spawning.clusterChance ?? 0.3;
@@ -373,6 +402,7 @@ function generateRandomMode(ctx: GenerateContext): Resource[] {
       height,
       rng,
       placed,
+      biomeAt,
     );
     if (resource) {
       resources.push(resource);
@@ -399,6 +429,7 @@ function tryPlaceResource(
   height: number,
   rng: RNG,
   index: number,
+  biomeAt: (x: number, y: number) => BiomeType,
 ): Resource | null {
   const { mapMargin, fortClearRadius } = GENERATION_CONFIG;
 
@@ -414,6 +445,19 @@ function tryPlaceResource(
   const terrain = inWater ? "water" : "land";
   const terrainTypes = def.possibleTerrainTypes || ["land"];
   if (!terrainTypes.includes(terrain)) return null;
+
+  const biome = biomeAt(x, y);
+
+  // Hard gates: some resources simply never appear in certain biomes (e.g. no trees in the desert),
+  // or only ever appear in one (e.g. cactus is desert-exclusive) — unlike preferredBiomes below, no leak.
+  if (def.excludedBiomes?.includes(biome)) return null;
+  if (def.requiredBiomes && !def.requiredBiomes.includes(biome)) return null;
+
+  // Biome affinity — soft preference, not a hard rule: still allowed outside its home biome, just
+  // much rarer there, so deserts/tundra don't end up completely empty of everything.
+  if (def.preferredBiomes && def.preferredBiomes.length > 0) {
+    if (!def.preferredBiomes.includes(biome) && rng.next() > 0.15) return null;
+  }
 
   // Overlap check
   const minDist = def.iconSize * 0.4;

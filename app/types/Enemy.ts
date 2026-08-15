@@ -25,6 +25,7 @@ export enum EnemyType {
   RaiderArcher = "raiderArcher",
   Wolf = "wolf",
   Piranha = "piranha",
+  Bear = "bear",
 }
 
 export interface Position {

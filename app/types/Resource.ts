@@ -11,11 +11,13 @@ export interface Resource {
 }
 
 export enum ResourceType {
-  Food = "food",
   Wood = "wood",
   Stone = "stone",
   Metal = "metal",
   Gold = "gold",
+  Fish = "fish",
+  Mushroom = "mushroom",
+  Cactus = "cactus",
   Meat = "meat",
   Leather = "leather",
 }

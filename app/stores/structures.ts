@@ -4,6 +4,7 @@ import { StructureType, type Structure } from "@/types/Structure";
 import structureDefs from "@/data/structureDefinitions.json";
 import { useCameraStore } from "./camera";
 import { useWorldStore } from "./world";
+import { distanceToPolyline } from "@/utils/geometry";
 
 const fortDef = structureDefs.fort;
 
@@ -26,7 +27,7 @@ function createInitialState(): Structure[] {
   const MAP_CENTER_Y = cameraStore.mapHeight / 2;
   let fortPosition = getRandomFortPosition(MAP_CENTER_X, MAP_CENTER_Y);
 
-  // Ensure fort is at least 150 units away from any lake edge
+  // Ensure fort is at least 150 units away from any lake edge or river centerline
   const MIN_DIST = 150;
   const MAX_TRIES = 100;
 
@@ -39,6 +40,15 @@ function createInitialState(): Structure[] {
       if (d <= lake.radius + MIN_DIST) {
         tooClose = true;
         break;
+      }
+    }
+
+    if (!tooClose) {
+      for (const river of worldStore.rivers) {
+        if (river.path && distanceToPolyline(fortPosition, river.path) <= MIN_DIST) {
+          tooClose = true;
+          break;
+        }
       }
     }
 

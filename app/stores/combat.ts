@@ -168,9 +168,10 @@ export const useCombatStore = defineStore("combat", () => {
       kind: "damageNumber",
       x: target.position.x,
       y: target.position.y,
+      offsetX: (Math.random() - 0.5) * 24,
       amount: Math.round(amount),
       crit,
-      durationMs: 700,
+      durationMs: 800,
     });
   }
 

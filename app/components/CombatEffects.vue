@@ -10,6 +10,11 @@
         @animationend="effectsStore.remove(fx.id)"
       >
         <span v-if="fx.kind === 'damageNumber'" class="fx-damage-text">{{ fx.crit ? `-${fx.amount}!` : `-${fx.amount}` }}</span>
+
+        <span v-else-if="fx.kind === 'gatherNumber'" class="fx-gather-content">
+          <UIcon :name="`i-game-icons-${fx.iconName}`" class="fx-gather-icon" />
+          <span class="fx-gather-text">+{{ fx.amount }}</span>
+        </span>
       </div>
     </div>
   </div>
@@ -30,7 +35,7 @@ function fxStyle(fx: EffectSpec) {
   const dist = Math.hypot(dx, dy);
 
   return {
-    left: `${fx.x}px`,
+    left: `${fx.x + (fx.offsetX ?? 0)}px`,
     top: `${fx.y}px`,
     "--angle": `${angle}deg`,
     "--dist": `${dist}px`,
@@ -131,28 +136,78 @@ function fxStyle(fx: EffectSpec) {
   filter: drop-shadow(0 0 5px #ef4444);
 }
 
-/* Número de dano flutuante */
+/* Número de dano flutuante — pop com pequeno overshoot, depois sobe e desvanece (estilo Ragnarok) */
 .fx-damageNumber {
-  animation: fx-damage-anim var(--duration) ease-out forwards;
+  animation: fx-damage-anim var(--duration) cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
 }
 .fx-damage-text {
   display: inline-block;
   transform: translate(-50%, -100%);
   font-family: ui-monospace, monospace;
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: 800;
+  font-size: 15px;
   color: #f8fafc;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  text-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 2px 4px rgba(0, 0, 0, 0.7);
   white-space: nowrap;
 }
 .fx-damageNumber.fx-crit .fx-damage-text {
-  color: #ef4444;
-  font-size: 17px;
-  text-shadow: 0 0 6px rgba(239, 68, 68, 0.85), 0 1px 2px rgba(0, 0, 0, 0.9);
+  color: #fbbf24;
+  font-size: 21px;
+  text-shadow:
+    -1px -1px 0 #7f1d1d,
+    1px -1px 0 #7f1d1d,
+    -1px 1px 0 #7f1d1d,
+    1px 1px 0 #7f1d1d,
+    0 0 8px rgba(251, 191, 36, 0.9),
+    0 2px 4px rgba(0, 0, 0, 0.8);
 }
 @keyframes fx-damage-anim {
-  0% { opacity: 0; transform: translateY(0) scale(0.8); }
-  15% { opacity: 1; transform: translateY(-6px) scale(1.1); }
-  100% { opacity: 0; transform: translateY(-38px) scale(1); }
+  0% { opacity: 0; transform: translateY(6px) scale(0.4); }
+  10% { opacity: 1; transform: translateY(-12px) scale(1.35); }
+  22% { transform: translateY(-6px) scale(1); }
+  78% { opacity: 1; transform: translateY(-34px) scale(1); }
+  100% { opacity: 0; transform: translateY(-46px) scale(0.9); }
+}
+
+/* Popup de coleta — ícone + "+N" subindo e desvanecendo, mesmo espírito do número de dano */
+.fx-gatherNumber {
+  animation: fx-gather-anim var(--duration) cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
+}
+.fx-gather-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+}
+.fx-gather-icon {
+  width: 14px;
+  height: 14px;
+  color: #4ade80;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+.fx-gather-text {
+  font-family: ui-monospace, monospace;
+  font-weight: 800;
+  font-size: 14px;
+  color: #4ade80;
+  text-shadow:
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    1px 1px 0 #000,
+    0 2px 3px rgba(0, 0, 0, 0.6);
+}
+@keyframes fx-gather-anim {
+  0% { opacity: 0; transform: translateY(4px) scale(0.5); }
+  12% { opacity: 1; transform: translateY(-8px) scale(1.2); }
+  24% { transform: translateY(-4px) scale(1); }
+  80% { opacity: 1; transform: translateY(-30px) scale(1); }
+  100% { opacity: 0; transform: translateY(-40px) scale(0.9); }
 }
 </style>

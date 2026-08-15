@@ -1,6 +1,7 @@
 import { ref, computed } from "vue";
 import { defineStore } from "pinia";
 import { EnemyType, type Enemy, type Position } from "@/types/Enemy";
+import { BiomeType } from "@/types/Terrain";
 import enemyDefs from "@/data/enemyDefinitions.json";
 import { useStructureStore } from "./structures";
 import { useWorldStore } from "./world";
@@ -11,7 +12,16 @@ import { isInWater, approachPoint, distance } from "@/utils/geometry";
 
 type EnemyDefKey = keyof typeof enemyDefs;
 
-const AMBIENT_CAP_PER_TYPE = 4;
+const DEFAULT_AMBIENT_CAP = 4;
+// Wolves pack up in forests, so they need more headroom than the other solitary ambient types.
+const AMBIENT_CAP_BY_TYPE: Partial<Record<EnemyType, number>> = {
+  [EnemyType.Wolf]: 8,
+};
+
+function ambientCapFor(type: EnemyType): number {
+  return AMBIENT_CAP_BY_TYPE[type] ?? DEFAULT_AMBIENT_CAP;
+}
+
 const HORDE_BASE_COUNT = 3;
 const HORDE_PER_DAY = 1.5;
 const HORDE_MAX = 20;
@@ -106,12 +116,13 @@ export const useEnemyStore = defineStore("enemies", () => {
     }
   }
 
-  /** Rolls for opportunistic ambient spawns: a piranha inside a lake, a wolf near a wood cluster. */
+  /** Rolls for opportunistic ambient spawns: a piranha inside a lake, a wolf pack near forest wood, a bear in the tundra. */
   function spawnAmbient() {
     const worldStore = useWorldStore();
     const resourceStore = useResourceStore();
+    const camera = useCameraStore();
 
-    if (worldStore.allLakes.length > 0 && ambientCountByType(EnemyType.Piranha) < AMBIENT_CAP_PER_TYPE) {
+    if (worldStore.allLakes.length > 0 && ambientCountByType(EnemyType.Piranha) < ambientCapFor(EnemyType.Piranha)) {
       const lake = worldStore.allLakes[Math.floor(Math.random() * worldStore.allLakes.length)]!;
 
       for (let tries = 0; tries < 10; tries++) {
@@ -127,13 +138,30 @@ export const useEnemyStore = defineStore("enemies", () => {
     }
 
     const woodResources = resourceStore.allResources.filter((r) => r.type === "wood");
-    if (woodResources.length > 0 && ambientCountByType(EnemyType.Wolf) < AMBIENT_CAP_PER_TYPE) {
+    if (woodResources.length > 0 && ambientCountByType(EnemyType.Wolf) < ambientCapFor(EnemyType.Wolf)) {
       const tree = woodResources[Math.floor(Math.random() * woodResources.length)]!;
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 40 + Math.random() * 100;
-      const pos = { x: tree.position.x + Math.cos(angle) * dist, y: tree.position.y + Math.sin(angle) * dist };
+      const inForest = worldStore.biomeAt(tree.position.x, tree.position.y) === BiomeType.Forest;
+      // Forests get wolf packs; everywhere else it's a lone wolf, same as before.
+      const packSize = inForest ? 1 + Math.floor(Math.random() * 3) : 1;
 
-      addEnemy(createEnemy(EnemyType.Wolf, pos, "ambient"));
+      for (let i = 0; i < packSize && ambientCountByType(EnemyType.Wolf) < ambientCapFor(EnemyType.Wolf); i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 40 + Math.random() * 100;
+        const pos = { x: tree.position.x + Math.cos(angle) * dist, y: tree.position.y + Math.sin(angle) * dist };
+
+        addEnemy(createEnemy(EnemyType.Wolf, pos, "ambient"));
+      }
+    }
+
+    if (ambientCountByType(EnemyType.Bear) < ambientCapFor(EnemyType.Bear)) {
+      for (let tries = 0; tries < 20; tries++) {
+        const pos = { x: Math.random() * camera.mapWidth, y: Math.random() * camera.mapHeight };
+
+        if (worldStore.biomeAt(pos.x, pos.y) === BiomeType.Tundra && !isInWater(pos.x, pos.y, worldStore.allWaterBodies)) {
+          addEnemy(createEnemy(EnemyType.Bear, pos, "ambient"));
+          break;
+        }
+      }
     }
   }
 
@@ -143,7 +171,7 @@ export const useEnemyStore = defineStore("enemies", () => {
     const structureStore = useStructureStore();
     const fort = structureStore.getStructure("fort-1");
     const unitStore = useUnitStore();
-    const lakesCache = worldStore.allLakes;
+    const lakesCache = worldStore.allWaterBodies;
     const deltaMultiplier = gameDeltaMs / TARGET_FRAME_TIME;
 
     for (const enemy of enemies.value.values()) {

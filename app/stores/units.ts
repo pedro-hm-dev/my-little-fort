@@ -12,12 +12,16 @@ import { useResourceStore } from "./resources";
 import { useInventoryStore } from "./inventory";
 import { useSelectionStore } from "./selection";
 import { useEnemyStore } from "./enemies";
-import { isInWater, distance, approachPoint } from "@/utils/geometry";
+import { useEffectsStore } from "./effects";
+import { isInWater, distance, approachPoint, evenlySpacedAngles } from "@/utils/geometry";
 
 const TARGET_FRAME_TIME = 1000 / 60;
 
 // Must match FULL_DAY_MS_AT_X1 in time.ts
 const FULL_DAY_GAME_MS = 300_000;
+
+/** How far around a resource a gathering unit stands, so a group rings it instead of stacking on top. */
+const GATHER_STANDOFF_RADIUS = 35;
 
 type UnitDefKey = keyof typeof unitDefs;
 
@@ -262,17 +266,16 @@ export const useUnitStore = defineStore("units", () => {
         });
       }
     } else {
-      const scatterRadius = 40;
-      unitIds.forEach((id) => {
+      const angles = evenlySpacedAngles(unitIds.length);
+      unitIds.forEach((id, index) => {
         const unit = units.value.get(id);
         if (unit) {
-          const angle = Math.random() * Math.PI * 2;
-          const dist = Math.random() * scatterRadius;
+          const angle = angles[index]!;
           units.value.set(id, {
             ...unit,
             targetPosition: {
-              x: resource.position.x + Math.cos(angle) * dist,
-              y: resource.position.y + Math.sin(angle) * dist,
+              x: resource.position.x + Math.cos(angle) * GATHER_STANDOFF_RADIUS,
+              y: resource.position.y + Math.sin(angle) * GATHER_STANDOFF_RADIUS,
             },
             targetResource: resourceId,
             gatherProgress: 0,
@@ -282,16 +285,24 @@ export const useUnitStore = defineStore("units", () => {
     }
   }
 
-  /** Order units to engage an enemy: close to 90% of their combat range, then let the combat store take over. */
+  /** Order units to engage an enemy: close to 90% of their combat range, then let the combat store take over.
+   * A group spreads around the enemy in a ring (each at its own combat range) instead of converging on one spot. */
   function attackTarget(unitIds: string[], enemyId: string) {
     const enemyStore = useEnemyStore();
     const enemy = enemyStore.getEnemy(enemyId);
     if (!enemy) return;
 
-    unitIds.forEach((id) => {
+    const angles = unitIds.length > 1 ? evenlySpacedAngles(unitIds.length) : null;
+
+    unitIds.forEach((id, index) => {
       const unit = units.value.get(id);
       if (!unit || unit.insideFortId) return;
       if (unit.combatRange <= 0 || unit.actionIds.length === 0) return;
+
+      const standoff = unit.combatRange * 0.9;
+      const targetPosition = angles
+        ? { x: enemy.position.x + Math.cos(angles[index]!) * standoff, y: enemy.position.y + Math.sin(angles[index]!) * standoff }
+        : approachPoint(unit.position, enemy.position, standoff);
 
       units.value.set(id, {
         ...unit,
@@ -302,18 +313,21 @@ export const useUnitStore = defineStore("units", () => {
         combatTargetId: enemyId,
         combatTargetIsStructure: false,
         combatQueue: undefined,
-        targetPosition: approachPoint(unit.position, enemy.position, unit.combatRange * 0.9),
+        targetPosition,
       });
     });
   }
 
-  /** Queue a set of enemies (e.g. from an area selection) for each unit, nearest first, and engage the closest. */
+  /** Queue a set of enemies (e.g. from an area selection) for each unit, nearest first, and engage the closest.
+   * A group spreads around its (usually shared) nearest enemy in a ring instead of converging on one spot. */
   function attackArea(unitIds: string[], enemyIds: string[]) {
     const enemyStore = useEnemyStore();
     const enemies = enemyIds.map((id) => enemyStore.getEnemy(id)).filter((e): e is Enemy => !!e);
     if (enemies.length === 0) return;
 
-    unitIds.forEach((id) => {
+    const angles = unitIds.length > 1 ? evenlySpacedAngles(unitIds.length) : null;
+
+    unitIds.forEach((id, index) => {
       const unit = units.value.get(id);
       if (!unit || unit.insideFortId) return;
       if (unit.combatRange <= 0 || unit.actionIds.length === 0) return;
@@ -324,6 +338,11 @@ export const useUnitStore = defineStore("units", () => {
       const [first, ...rest] = sorted;
       if (!first) return;
 
+      const standoff = unit.combatRange * 0.9;
+      const targetPosition = angles
+        ? { x: first.position.x + Math.cos(angles[index]!) * standoff, y: first.position.y + Math.sin(angles[index]!) * standoff }
+        : approachPoint(unit.position, first.position, standoff);
+
       units.value.set(id, {
         ...unit,
         targetResource: undefined,
@@ -333,7 +352,7 @@ export const useUnitStore = defineStore("units", () => {
         combatTargetId: first.id,
         combatTargetIsStructure: false,
         combatQueue: rest.map((e) => e.id),
-        targetPosition: approachPoint(unit.position, first.position, unit.combatRange * 0.9),
+        targetPosition,
       });
     });
   }
@@ -349,9 +368,15 @@ export const useUnitStore = defineStore("units", () => {
 
       const resource = resourceStore.getResource(nextId);
       if (resource) {
+        // No sibling-unit context here (this runs per-unit as its own queue advances), so just a
+        // random offset rather than a full ring — still keeps it off the resource's exact center.
+        const angle = Math.random() * Math.PI * 2;
         return {
           targetResource: nextId,
-          targetPosition: { ...resource.position },
+          targetPosition: {
+            x: resource.position.x + Math.cos(angle) * GATHER_STANDOFF_RADIUS,
+            y: resource.position.y + Math.sin(angle) * GATHER_STANDOFF_RADIUS,
+          },
           gatherProgress: 0,
           gatherQueue: queue.length > 0 ? queue : undefined,
         };
@@ -361,13 +386,16 @@ export const useUnitStore = defineStore("units", () => {
     return { targetResource: undefined, targetPosition: undefined, gatherProgress: undefined, gatherQueue: undefined };
   }
 
-  /** Queue a set of resources (e.g. from an area selection) for each unit, nearest first, and start gathering. */
+  /** Queue a set of resources (e.g. from an area selection) for each unit, nearest first, and start gathering.
+   * A group rings its (usually shared) nearest resource instead of every unit stacking on the exact same spot. */
   function gatherResources(unitIds: string[], resourceIds: string[]) {
     const resourceStore = useResourceStore();
     const resources = resourceIds.map((id) => resourceStore.getResource(id)).filter((r): r is Resource => !!r);
     if (resources.length === 0) return;
 
-    unitIds.forEach((id) => {
+    const angles = unitIds.length > 1 ? evenlySpacedAngles(unitIds.length) : null;
+
+    unitIds.forEach((id, index) => {
       const unit = units.value.get(id);
       if (!unit || unit.insideFortId) return;
 
@@ -377,13 +405,20 @@ export const useUnitStore = defineStore("units", () => {
       const [first, ...rest] = sorted;
       if (!first) return;
 
+      const targetPosition = angles
+        ? {
+            x: first.position.x + Math.cos(angles[index]!) * GATHER_STANDOFF_RADIUS,
+            y: first.position.y + Math.sin(angles[index]!) * GATHER_STANDOFF_RADIUS,
+          }
+        : { ...first.position };
+
       units.value.set(id, {
         ...unit,
         combatTargetId: undefined,
         combatTargetIsStructure: undefined,
         combatQueue: undefined,
         shelterTargetId: undefined,
-        targetPosition: { ...first.position },
+        targetPosition,
         targetResource: first.id,
         gatherProgress: 0,
         gatherQueue: rest.map((r) => r.id),
@@ -444,8 +479,9 @@ export const useUnitStore = defineStore("units", () => {
   function updateUnitPositions(gameDeltaMs: number) {
     const resourceStore = useResourceStore();
     const inventoryStore = useInventoryStore();
+    const effectsStore = useEffectsStore();
     const deltaMultiplier = gameDeltaMs / TARGET_FRAME_TIME;
-    const lakesCache = worldStore.allLakes;
+    const lakesCache = worldStore.allWaterBodies;
 
     for (const unit of units.value.values()) {
       // Skip units inside a fort
@@ -469,6 +505,15 @@ export const useUnitStore = defineStore("units", () => {
           if (newProgress >= 1) {
             const depleted = resourceStore.depleteResource(unit.targetResource, 1);
             inventoryStore.addResource(resource.type, 1);
+            effectsStore.spawn({
+              kind: "gatherNumber",
+              x: unit.position.x,
+              y: unit.position.y,
+              offsetX: (Math.random() - 0.5) * 20,
+              amount: 1,
+              iconName: resource.iconName,
+              durationMs: 900,
+            });
 
             if (depleted) {
               units.value.set(unit.id, { ...unit, ...nextGatherState(unit.gatherQueue) });

@@ -113,31 +113,37 @@ const inventoryStore = useInventoryStore();
 const emit = defineEmits<{ close: [] }>();
 
 const resourceColors: Record<ResourceType, string> = {
-  [ResourceType.Food]: "#4ade80",
   [ResourceType.Wood]: "#a16207",
   [ResourceType.Stone]: "#94a3b8",
   [ResourceType.Metal]: "#71717a",
   [ResourceType.Gold]: "#fbbf24",
+  [ResourceType.Fish]: "#38bdf8",
+  [ResourceType.Mushroom]: "#4ade80",
+  [ResourceType.Cactus]: "#65a30d",
   [ResourceType.Meat]: "#ef4444",
   [ResourceType.Leather]: "#92400e",
 };
 
 const resourceNames: Record<ResourceType, string> = {
-  [ResourceType.Food]: "Comida",
   [ResourceType.Wood]: "Madeira",
   [ResourceType.Stone]: "Pedra",
   [ResourceType.Metal]: "Metal",
   [ResourceType.Gold]: "Ouro",
+  [ResourceType.Fish]: "Peixe",
+  [ResourceType.Mushroom]: "Cogumelo",
+  [ResourceType.Cactus]: "Cacto",
   [ResourceType.Meat]: "Carne",
   [ResourceType.Leather]: "Couro",
 };
 
 const resourceIcons: Record<ResourceType, string> = {
-  [ResourceType.Food]: "i-game-icons-mushrooms",
   [ResourceType.Wood]: "i-game-icons-pine-tree",
   [ResourceType.Stone]: "i-game-icons-stone-pile",
   [ResourceType.Metal]: "i-game-icons-minerals",
   [ResourceType.Gold]: "i-game-icons-gold-nuggets",
+  [ResourceType.Fish]: "i-game-icons-school-of-fish",
+  [ResourceType.Mushroom]: "i-game-icons-mushrooms",
+  [ResourceType.Cactus]: "i-game-icons-cactus",
   [ResourceType.Meat]: "i-game-icons-meat",
   [ResourceType.Leather]: "i-game-icons-animal-hide",
 };

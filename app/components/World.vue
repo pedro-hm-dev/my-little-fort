@@ -463,37 +463,51 @@ const drawMapBounds = () => {
   ctx.strokeRect(0, 0, camera.mapWidth, camera.mapHeight);
 };
 
+const drawWaterPolygon = (outline: { x: number; y: number }[], fillStyle: string | CanvasGradient) => {
+  if (!ctx || outline.length < 3) return;
+
+  const first = outline[0];
+  if (!first) return;
+
+  ctx.fillStyle = fillStyle;
+  ctx.strokeStyle = "rgba(100, 180, 255, 0.6)";
+  ctx.lineWidth = 3 / camera.zoom;
+  ctx.beginPath();
+  ctx.moveTo(first.x, first.y);
+
+  for (let i = 1; i < outline.length; i++) {
+    const p = outline[i];
+    if (!p) continue;
+    ctx.lineTo(p.x, p.y);
+  }
+
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(150, 200, 255, 0.2)";
+  ctx.lineWidth = 8 / camera.zoom;
+  ctx.stroke();
+};
+
 const drawTerrain = () => {
   if (!ctx) return;
-  for (const lake of worldStore.allLakes) {
-    const outline = lake.outline;
-    if (!outline || outline.length < 3) continue;
 
+  if (worldStore.biomeTexture) {
+    ctx.drawImage(worldStore.biomeTexture, 0, 0, camera.mapWidth, camera.mapHeight);
+  }
+
+  for (const lake of worldStore.allLakes) {
     const gradient = ctx.createRadialGradient(lake.center.x, lake.center.y, 0, lake.center.x, lake.center.y, lake.radius);
     gradient.addColorStop(0, "rgba(30, 100, 180, 0.5)");
     gradient.addColorStop(0.7, "rgba(50, 140, 220, 0.4)");
     gradient.addColorStop(1, "rgba(70, 180, 255, 0.3)");
 
-    ctx.fillStyle = gradient;
-    ctx.strokeStyle = "rgba(100, 180, 255, 0.6)";
-    ctx.lineWidth = 3 / camera.zoom;
-    ctx.beginPath();
+    drawWaterPolygon(lake.outline, gradient);
+  }
 
-    const first = outline[0];
-    if (!first) continue;
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < outline.length; i++) {
-      const p = outline[i];
-      if (!p) continue;
-      ctx.lineTo(p.x, p.y);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.strokeStyle = "rgba(150, 200, 255, 0.2)";
-    ctx.lineWidth = 8 / camera.zoom;
-    ctx.stroke();
+  for (const river of worldStore.rivers) {
+    drawWaterPolygon(river.outline, "rgba(50, 130, 200, 0.4)");
   }
 };
 

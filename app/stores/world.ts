@@ -1,64 +1,172 @@
-import { ref, computed } from "vue";
+import { ref, computed, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import { useCameraStore } from "@/stores/camera";
-import type { Lake, Position } from "@/types/Terrain";
-import { distance } from "@/utils/geometry";
+import { BiomeType, type Lake, type Position } from "@/types/Terrain";
+import { distance, pointInPolygon } from "@/utils/geometry";
 import { fbm, noise2D, setGlobalSeed, getSeededRandom } from "@/utils/noise";
 
 // Lake generation configuration
 const LAKE_CONFIG = {
   minCount: 4,
-  maxCount: 10,
+  maxCount: 9,
   minGap: 100,
-  // Size categories with weights
   sizes: {
     small: { weight: 0.35, minRadius: 80, maxRadius: 160 },
     medium: { weight: 0.4, minRadius: 180, maxRadius: 320 },
     large: { weight: 0.25, minRadius: 350, maxRadius: 550 },
   },
-  // Deformation parameters - aumentados para formas mais orgânicas
-  baseSegments: 72, // Mais segmentos para curvas suaves
-  // Múltiplas camadas de deformação para forma mais natural
+  baseSegments: 72,
+  // Layered deformation — primary/secondary/tertiary are progressively finer wobble on top of the
+  // base radius. "bay" is a separate, high-contrast, sparse layer that only kicks in past a threshold,
+  // carving occasional inlets/peninsulas instead of a uniformly wobbly edge.
   deformation: {
-    // Deformação primária (grandes lobos)
-    primary: {
-      frequency: 2.5, // Frequência baixa = formas grandes
-      amplitude: 0.35, // Amplitude alta = muita deformação
-    },
-    // Deformação secundária (ondulações médias)
-    secondary: {
-      frequency: 5,
-      amplitude: 0.15,
-    },
-    // Deformação terciária (detalhes pequenos)
-    tertiary: {
-      frequency: 12,
-      amplitude: 0.06,
-    },
+    primary: { frequency: 2.2, amplitude: 0.4 },
+    secondary: { frequency: 5, amplitude: 0.18 },
+    tertiary: { frequency: 13, amplitude: 0.07 },
+    bay: { frequency: 3.5, amplitude: 0.6, threshold: 0.55 },
   },
-  // Elongation - estica o lago em uma direção aleatória
-  elongation: {
-    min: 1.0,
-    max: 1.8, // Pode ser até 80% mais longo em uma direção
-  },
-  smoothingPasses: 1, // Menos suavização para manter deformação
+  // Domain warp: perturbs the *sampling coordinates* of the deformation noise with a second,
+  // independent noise field. This is what actually breaks the "wobbly circle" look — plain
+  // multi-octave noise on an angle->radius parameterization still reads as an oval no matter how
+  // many octaves you stack, because the radius is always a smooth function of angle around one
+  // center. Warping the input coordinates lets bulges/inlets appear at irregular, non-radial spots.
+  warp: { frequency: 1.6, strength: 0.9 },
+  smoothingPasses: 3,
 } as const;
+
+const RIVER_CONFIG = {
+  minCount: 1,
+  maxCount: 3,
+  minWidth: 50,
+  maxWidth: 100,
+  segmentLength: 90,
+  wanderStrength: 130,
+  // How fast the wander noise's sampling coordinate advances along the path — higher means more
+  // wiggles over the same length, not just bigger swings (that's wanderStrength's job).
+  wanderRate: 10,
+  smoothingPasses: 4,
+} as const;
+
+// A lake can get a single, smooth, deep "bite" on one side plus a matching elongation on the
+// opposite axis — reads as a bean/kidney shape instead of a wobbly circle. Only some lakes get it,
+// so the map still has a mix of shapes.
+const BEAN_CONFIG = {
+  chance: 0.55,
+  dentDepth: 0.5,
+  dentWidth: 0.9,
+  elongation: 1.3,
+} as const;
+
+interface BiomeRegionSpec {
+  biome: BiomeType;
+  minCount: number;
+  maxCount: number;
+  minRadius: number;
+  maxRadius: number;
+}
+
+// Each biome (besides the Grassland default) shows up as only one or two large, distinct blobs on
+// the map — not a continuous noise classification. Reuses the exact same organic-outline generator
+// as lakes, just for land regions instead of water.
+const BIOME_REGION_SPECS: BiomeRegionSpec[] = [
+  { biome: BiomeType.Forest, minCount: 1, maxCount: 2, minRadius: 700, maxRadius: 1150 },
+  { biome: BiomeType.Desert, minCount: 1, maxCount: 2, minRadius: 700, maxRadius: 1150 },
+  { biome: BiomeType.Tundra, minCount: 1, maxCount: 2, minRadius: 650, maxRadius: 1050 },
+  { biome: BiomeType.Mountain, minCount: 1, maxCount: 2, minRadius: 550, maxRadius: 950 },
+];
+
+const BIOME_REGION_MIN_GAP = 150;
+const BIOME_TEXTURE_CELL_SIZE = 80;
+
+const BIOME_COLORS: Record<BiomeType, string> = {
+  [BiomeType.Grassland]: "#1c221b",
+  [BiomeType.Forest]: "#15201a",
+  [BiomeType.Desert]: "#2a2314",
+  [BiomeType.Tundra]: "#1b232a",
+  [BiomeType.Mountain]: "#26262a",
+};
+
+interface BiomeRegion {
+  biome: BiomeType;
+  center: Position;
+  radius: number;
+  outline: Position[];
+}
+
+function regionContains(x: number, y: number, region: BiomeRegion): boolean {
+  const dx = x - region.center.x;
+  const dy = y - region.center.y;
+  const distSq = dx * dx + dy * dy;
+  const maxRadiusSq = (region.radius * 1.5) ** 2;
+
+  if (distSq > maxRadiusSq) return false;
+
+  return pointInPolygon({ x, y }, region.outline);
+}
+
+function biomeAtRegions(x: number, y: number, regions: BiomeRegion[]): BiomeType {
+  for (const region of regions) {
+    if (regionContains(x, y, region)) return region.biome;
+  }
+
+  return BiomeType.Grassland;
+}
+
+function buildBiomeTexture(width: number, height: number, regions: BiomeRegion[]): HTMLCanvasElement | null {
+  if (typeof document === "undefined") return null;
+
+  const cols = Math.ceil(width / BIOME_TEXTURE_CELL_SIZE);
+  const rows = Math.ceil(height / BIOME_TEXTURE_CELL_SIZE);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = cols;
+  canvas.height = rows;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const worldX = (col + 0.5) * BIOME_TEXTURE_CELL_SIZE;
+      const worldY = (row + 0.5) * BIOME_TEXTURE_CELL_SIZE;
+      ctx.fillStyle = BIOME_COLORS[biomeAtRegions(worldX, worldY, regions)];
+      ctx.fillRect(col, row, 1, 1);
+    }
+  }
+
+  return canvas;
+}
 
 export const useWorldStore = defineStore("world", () => {
   const lakes = ref<Lake[]>([]);
+  const rivers = ref<Lake[]>([]);
+  const biomeRegions = shallowRef<BiomeRegion[]>([]);
+  const biomeTexture = shallowRef<HTMLCanvasElement | null>(null);
   const worldSeed = ref<number>(Date.now());
+
   const allLakes = computed(() => lakes.value);
+  /** Lakes + rivers together — what movement/placement/AI checks should treat as "water." */
+  const allWaterBodies = computed<Lake[]>(() => [...lakes.value, ...rivers.value]);
+
+  /** Biome at a world point — Grassland unless inside one of the few placed biome-region blobs. */
+  function biomeAt(x: number, y: number): BiomeType {
+    return biomeAtRegions(x, y, biomeRegions.value);
+  }
 
   function initialize(seed?: number) {
     const camera = useCameraStore();
     const width = camera.mapWidth;
     const height = camera.mapHeight;
 
-    // Set seed for reproducibility
     worldSeed.value = seed ?? Date.now();
     setGlobalSeed(worldSeed.value);
 
-    lakes.value = generateLakes(width, height);
+    const rng = getSeededRandom();
+
+    lakes.value = generateLakes(width, height, rng);
+    rivers.value = generateRivers(width, height, rng);
+    biomeRegions.value = generateBiomeRegions(width, height, rng);
+    biomeTexture.value = buildBiomeTexture(width, height, biomeRegions.value);
   }
 
   function regenerate(seed?: number) {
@@ -67,41 +175,33 @@ export const useWorldStore = defineStore("world", () => {
 
   return {
     lakes,
+    rivers,
     allLakes,
+    allWaterBodies,
+    biomeTexture,
     worldSeed,
+    biomeAt,
     initialize,
     regenerate,
   };
 });
 
-/**
- * Generate organic lake shapes using Perlin noise
- */
-function generateLakes(width: number, height: number): Lake[] {
-  const rng = getSeededRandom();
+type RNG = { next: () => number; range: (min: number, max: number) => number; intRange: (min: number, max: number) => number };
+
+/** Generate organic lake shapes using domain-warped noise. */
+function generateLakes(width: number, height: number, rng: RNG): Lake[] {
   const count = rng.intRange(LAKE_CONFIG.minCount, LAKE_CONFIG.maxCount);
   const lakes: Lake[] = [];
 
   for (let i = 0; i < count; i++) {
     const lake = tryPlaceLake(width, height, lakes, rng);
-    if (lake) {
-      lakes.push(lake);
-    }
+    if (lake) lakes.push(lake);
   }
 
   return lakes;
 }
 
-/**
- * Try to place a single lake avoiding overlaps
- */
-function tryPlaceLake(
-  width: number,
-  height: number,
-  existingLakes: Lake[],
-  rng: { next: () => number; range: (min: number, max: number) => number },
-): Lake | null {
-  // Determine lake size category
+function tryPlaceLake(width: number, height: number, existingLakes: Lake[], rng: RNG): Lake | null {
   const sizeRoll = rng.next();
   const { sizes } = LAKE_CONFIG;
 
@@ -126,7 +226,6 @@ function tryPlaceLake(
     const cx = rng.range(margin, width - margin);
     const cy = rng.range(margin, height - margin);
 
-    // Check overlap with existing lakes
     let overlaps = false;
     for (const lake of existingLakes) {
       const d = distance({ x: cx, y: cy }, lake.center);
@@ -137,96 +236,112 @@ function tryPlaceLake(
     }
 
     if (!overlaps) {
-      const outline = generateOrganicOutline(cx, cy, radius, sizeCategory, rng);
-      return { center: { x: cx, y: cy }, radius, outline };
+      const beanAngle = rng.next() < BEAN_CONFIG.chance ? rng.next() * Math.PI * 2 : null;
+      const outline = generateOrganicOutline(cx, cy, radius, sizeCategory, rng, beanAngle);
+      return { center: { x: cx, y: cy }, radius, outline, kind: "lake" };
     }
   }
 
   return null;
 }
 
-/**
- * Generate an organic lake outline using multiple layers of noise
- * Creates highly irregular shapes like real lakes
- */
+/** Shortest signed angular distance from b to a, wrapped to [-pi, pi]. */
+function angleDiffWrapped(a: number, b: number): number {
+  let diff = a - b;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return diff;
+}
+
+/** Generate an organic blob outline via domain-warped, multi-octave angle->radius sampling. Used for
+ * lakes and land biome regions alike — it's a purely geometric shape generator, no water semantics.
+ * `beanAngle`, lakes only: carves one smooth deep dent at that angle plus a matching elongation on
+ * the perpendicular axis, so the lake reads as a bean/kidney shape instead of a wobbly circle. */
 function generateOrganicOutline(
   cx: number,
   cy: number,
   baseRadius: number,
   sizeCategory: "small" | "medium" | "large",
-  rng: { next: () => number; range: (min: number, max: number) => number },
+  rng: RNG,
+  beanAngle: number | null = null,
 ): Position[] {
-  const { deformation, elongation, baseSegments } = LAKE_CONFIG;
+  const { deformation, warp, baseSegments } = LAKE_CONFIG;
 
-  // Mais segmentos para lagos maiores (curvas mais suaves)
   const segments = sizeCategory === "large" ? 96 : sizeCategory === "medium" ? 80 : baseSegments;
 
-  // Offset único para este lago no espaço de noise
   const noiseOffsetX = rng.next() * 1000;
   const noiseOffsetY = rng.next() * 1000;
+  const warpOffsetX = rng.next() * 1000;
+  const warpOffsetY = rng.next() * 1000;
+  const bayOffsetX = rng.next() * 1000;
+  const bayOffsetY = rng.next() * 1000;
 
-  // Ângulo de elongação aleatório
-  const elongationAngle = rng.next() * Math.PI * 2;
-  const elongationFactor = rng.range(elongation.min, elongation.max);
-
-  // Escala de amplitude baseada no tamanho (lagos menores podem ter mais variação relativa)
   const amplitudeScale = sizeCategory === "small" ? 1.2 : sizeCategory === "medium" ? 1.0 : 0.85;
 
   const outline: Position[] = [];
 
   for (let k = 0; k < segments; k++) {
     const angle = (Math.PI * 2 * k) / segments;
-
-    // Calcula ponto no espaço de noise baseado no ângulo
-    // Usa um círculo no espaço de noise para variação suave
     const noiseRadius = 3;
-    const nx = noiseOffsetX + Math.cos(angle) * noiseRadius;
-    const ny = noiseOffsetY + Math.sin(angle) * noiseRadius;
+    const ax = Math.cos(angle) * noiseRadius;
+    const ay = Math.sin(angle) * noiseRadius;
 
-    // Camada 1: Deformação primária (grandes lobos e baías)
+    const warpX = fbm((warpOffsetX + ax) * warp.frequency * 0.01, (warpOffsetY + ay) * warp.frequency * 0.01, 2);
+    const warpY = fbm(
+      (warpOffsetX + ax + 37) * warp.frequency * 0.01,
+      (warpOffsetY + ay + 37) * warp.frequency * 0.01,
+      2,
+    );
+
+    const nx = noiseOffsetX + ax + warpX * warp.strength;
+    const ny = noiseOffsetY + ay + warpY * warp.strength;
+
     const primary =
       fbm(nx * deformation.primary.frequency * 0.01, ny * deformation.primary.frequency * 0.01, 3, 2.0, 0.5) *
       deformation.primary.amplitude *
       amplitudeScale;
 
-    // Camada 2: Deformação secundária (ondulações médias)
     const secondary =
       noise2D(nx * deformation.secondary.frequency * 0.01, ny * deformation.secondary.frequency * 0.01) *
       deformation.secondary.amplitude *
       amplitudeScale;
 
-    // Camada 3: Deformação terciária (pequenos detalhes/ruído)
     const tertiary =
       noise2D(nx * deformation.tertiary.frequency * 0.01, ny * deformation.tertiary.frequency * 0.01) *
       deformation.tertiary.amplitude *
       amplitudeScale;
 
-    // Combina todas as camadas
-    const totalDeformation = 1 + primary + secondary + tertiary;
+    const bayNoise = noise2D(
+      (bayOffsetX + ax) * deformation.bay.frequency * 0.01,
+      (bayOffsetY + ay) * deformation.bay.frequency * 0.01,
+    );
+    const bay = bayNoise > deformation.bay.threshold ? -(bayNoise - deformation.bay.threshold) * deformation.bay.amplitude : 0;
 
-    // Aplica elongação (estica em uma direção)
-    const angleDiff = angle - elongationAngle;
-    const elongationEffect = 1 + (elongationFactor - 1) * Math.abs(Math.cos(angleDiff));
+    let totalDeformation = 1 + primary + secondary + tertiary + bay;
 
-    // Raio final com todas as deformações
-    const r = (baseRadius * totalDeformation) / elongationEffect;
+    if (beanAngle !== null) {
+      const dentDiff = angleDiffWrapped(angle, beanAngle);
+      const dent =
+        Math.exp(-(dentDiff * dentDiff) / (2 * BEAN_CONFIG.dentWidth * BEAN_CONFIG.dentWidth)) * BEAN_CONFIG.dentDepth;
+      totalDeformation -= dent;
 
-    // Clamp para evitar valores extremos
-    const clampedR = Math.max(baseRadius * 0.4, Math.min(baseRadius * 1.6, r));
+      const elongationAxis = beanAngle + Math.PI / 2;
+      const elongationDiff = Math.cos(angle - elongationAxis);
+      totalDeformation *= 1 + (BEAN_CONFIG.elongation - 1) * elongationDiff * elongationDiff;
+    }
 
-    outline.push({
-      x: cx + Math.cos(angle) * clampedR,
-      y: cy + Math.sin(angle) * clampedR,
-    });
+    const r = baseRadius * totalDeformation;
+    // Same 1.5x ceiling regardless of the bean dent/elongation above — isInWater's fast bounding-radius
+    // precheck assumes no outline point ever exceeds radius * 1.5, so this clamp must stay in sync.
+    const clampedR = Math.max(baseRadius * 0.35, Math.min(baseRadius * 1.5, r));
+
+    outline.push({ x: cx + Math.cos(angle) * clampedR, y: cy + Math.sin(angle) * clampedR });
   }
 
-  // Suavização leve para remover spikes sem perder a forma orgânica
   return smoothOutline(outline, LAKE_CONFIG.smoothingPasses);
 }
 
-/**
- * Laplacian smoothing for smoother lake outlines
- */
+/** Laplacian smoothing for smoother lake/river/biome-region outlines. */
 function smoothOutline(points: Position[], passes: number): Position[] {
   let current = points;
 
@@ -239,7 +354,6 @@ function smoothOutline(points: Position[], passes: number): Position[] {
       const curr = current[i]!;
       const next = current[(i + 1) % n]!;
 
-      // Weighted average: 50% current, 25% neighbors
       smoothed.push({
         x: curr.x * 0.5 + (prev.x + next.x) * 0.25,
         y: curr.y * 0.5 + (prev.y + next.y) * 0.25,
@@ -250,4 +364,174 @@ function smoothOutline(points: Position[], passes: number): Position[] {
   }
 
   return current;
+}
+
+/** Same Laplacian smoothing as smoothOutline, but for an open polyline — endpoints stay put (a river
+ * must still meet the map edge exactly) and only the interior points get pulled toward their neighbors. */
+function smoothPath(points: Position[], passes: number): Position[] {
+  let current = points;
+  if (current.length < 3) return current;
+
+  for (let p = 0; p < passes; p++) {
+    const smoothed: Position[] = [current[0]!];
+
+    for (let i = 1; i < current.length - 1; i++) {
+      const prev = current[i - 1]!;
+      const curr = current[i]!;
+      const next = current[i + 1]!;
+
+      smoothed.push({
+        x: curr.x * 0.5 + (prev.x + next.x) * 0.25,
+        y: curr.y * 0.5 + (prev.y + next.y) * 0.25,
+      });
+    }
+
+    smoothed.push(current[current.length - 1]!);
+    current = smoothed;
+  }
+
+  return current;
+}
+
+/** Rivers behave like lakes for movement (same isInWater/swimSpeed path) — just a long thin polygon instead of a blob. */
+function generateRivers(width: number, height: number, rng: RNG): Lake[] {
+  const count = rng.intRange(RIVER_CONFIG.minCount, RIVER_CONFIG.maxCount);
+  const rivers: Lake[] = [];
+
+  for (let i = 0; i < count; i++) {
+    rivers.push(generateRiver(width, height, rng));
+  }
+
+  return rivers;
+}
+
+function pointOnEdge(edge: number, width: number, height: number, rng: RNG): Position {
+  switch (edge) {
+    case 0:
+      return { x: rng.range(0, width), y: 0 };
+    case 1:
+      return { x: width, y: rng.range(0, height) };
+    case 2:
+      return { x: rng.range(0, width), y: height };
+    default:
+      return { x: 0, y: rng.range(0, height) };
+  }
+}
+
+function generateRiver(width: number, height: number, rng: RNG): Lake {
+  const entryEdge = rng.intRange(0, 3);
+  let exitEdge = rng.intRange(0, 3);
+  while (exitEdge === entryEdge) exitEdge = rng.intRange(0, 3);
+
+  const entry = pointOnEdge(entryEdge, width, height, rng);
+  const exit = pointOnEdge(exitEdge, width, height, rng);
+
+  const wanderOffsetX = rng.next() * 1000;
+  const wanderOffsetY = rng.next() * 1000;
+  const widthOffset = rng.next() * 1000;
+
+  const dx = exit.x - entry.x;
+  const dy = exit.y - entry.y;
+  const straightLen = Math.hypot(dx, dy) || 1;
+  const perpX = -dy / straightLen;
+  const perpY = dx / straightLen;
+
+  const steps = Math.max(8, Math.round(straightLen / RIVER_CONFIG.segmentLength));
+  const path: Position[] = [];
+
+  for (let s = 0; s <= steps; s++) {
+    const t = s / steps;
+    const baseX = entry.x + dx * t;
+    const baseY = entry.y + dy * t;
+
+    // Taper the wander to 0 at both ends so the river actually meets the map edge cleanly.
+    const taper = Math.sin(Math.PI * t);
+    const wander =
+      fbm(wanderOffsetX + t * RIVER_CONFIG.wanderRate, wanderOffsetY + t * RIVER_CONFIG.wanderRate, 3) *
+      RIVER_CONFIG.wanderStrength *
+      taper;
+
+    path.push({ x: baseX + perpX * wander, y: baseY + perpY * wander });
+  }
+
+  const smoothedPath = smoothPath(path, RIVER_CONFIG.smoothingPasses);
+
+  const left: Position[] = [];
+  const right: Position[] = [];
+
+  for (let i = 0; i < smoothedPath.length; i++) {
+    const prev = smoothedPath[Math.max(0, i - 1)]!;
+    const next = smoothedPath[Math.min(smoothedPath.length - 1, i + 1)]!;
+    const segDx = next.x - prev.x;
+    const segDy = next.y - prev.y;
+    const segLen = Math.hypot(segDx, segDy) || 1;
+    const nx = -segDy / segLen;
+    const ny = segDx / segLen;
+
+    const widthT = (noise2D((widthOffset + i) * 0.15, 0) + 1) / 2;
+    const halfWidth = (RIVER_CONFIG.minWidth + widthT * (RIVER_CONFIG.maxWidth - RIVER_CONFIG.minWidth)) / 2;
+
+    const p = smoothedPath[i]!;
+    left.push({ x: p.x + nx * halfWidth, y: p.y + ny * halfWidth });
+    right.push({ x: p.x - nx * halfWidth, y: p.y - ny * halfWidth });
+  }
+
+  const outline = [...left, ...right.reverse()];
+
+  const center = smoothedPath[Math.floor(smoothedPath.length / 2)]!;
+  let maxDistFromCenter = 0;
+  for (const p of smoothedPath) {
+    maxDistFromCenter = Math.max(maxDistFromCenter, distance(p, center));
+  }
+
+  return { center, radius: maxDistFromCenter + RIVER_CONFIG.maxWidth, outline, path: smoothedPath, kind: "river" };
+}
+
+/** Places one or two large blobs per biome type — reuses the lake's organic-outline generator, avoiding overlap between regions. */
+function generateBiomeRegions(width: number, height: number, rng: RNG): BiomeRegion[] {
+  const regions: BiomeRegion[] = [];
+
+  for (const spec of BIOME_REGION_SPECS) {
+    const count = rng.intRange(spec.minCount, spec.maxCount);
+
+    for (let i = 0; i < count; i++) {
+      const region = tryPlaceBiomeRegion(width, height, spec, regions, rng);
+      if (region) regions.push(region);
+    }
+  }
+
+  return regions;
+}
+
+function tryPlaceBiomeRegion(
+  width: number,
+  height: number,
+  spec: BiomeRegionSpec,
+  existing: BiomeRegion[],
+  rng: RNG,
+): BiomeRegion | null {
+  const radius = rng.range(spec.minRadius, spec.maxRadius);
+  const margin = Math.max(150, radius * 0.6);
+  const maxTries = 60;
+
+  for (let tries = 0; tries < maxTries; tries++) {
+    const cx = rng.range(margin, width - margin);
+    const cy = rng.range(margin, height - margin);
+
+    let overlaps = false;
+    for (const other of existing) {
+      if (distance({ x: cx, y: cy }, other.center) < radius + other.radius + BIOME_REGION_MIN_GAP) {
+        overlaps = true;
+        break;
+      }
+    }
+
+    if (!overlaps) {
+      const sizeCategory = radius > 900 ? "large" : radius > 500 ? "medium" : "small";
+      const outline = generateOrganicOutline(cx, cy, radius, sizeCategory, rng);
+      return { biome: spec.biome, center: { x: cx, y: cy }, radius, outline };
+    }
+  }
+
+  return null;
 }
