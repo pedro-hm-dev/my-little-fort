@@ -26,7 +26,15 @@ export enum EnemyType {
   Wolf = "wolf",
   Piranha = "piranha",
   Bear = "bear",
+  Tiger = "tiger",
+  DustDevil = "dustDevil",
 }
+
+/** Where an ambient enemy type spawns — declared per-type in enemyDefinitions.json, not hardcoded per type. */
+export type EnemyHabitat =
+  | { kind: "lake" }
+  | { kind: "resource"; resourceType: string }
+  | { kind: "biome"; biome: string };
 
 export interface Position {
   x: number;

@@ -45,6 +45,10 @@
     "combatRange": 40,
     "actionIds": ["bite"],
     "behavior": "ambient",
+    "habitat": { "kind": "resource", "resourceType": "wood" },
+    "packBiome": "forest",
+    "packSizeRange": [1, 3],
+    "ambientCap": 8,
     "lootTable": [
       { "type": "meat", "chance": 0.6, "amount": [3, 4] },
       { "type": "leather", "chance": 0.6, "amount": [2, 3] }
@@ -63,6 +67,7 @@
     "actionIds": ["lungeBite"],
     "behavior": "ambient",
     "aquatic": true,
+    "habitat": { "kind": "lake" },
     "lootTable": [{ "type": "meat", "chance": 0.7, "amount": [2, 4] }]
   },
 
@@ -77,6 +82,61 @@
     "combatRange": 45,
     "actionIds": ["maul"],
     "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "tundra" },
+    "lootTable": [
+      { "type": "meat", "chance": 1, "amount": [9, 16] },
+      { "type": "leather", "chance": 1, "amount": [5, 12] }
+    ]
+  },
+
+  "tiger": {
+    "type": "tiger",
+    "label": "Tigre",
+    "iconName": "tiger-head",
+    "iconSize": 45,
+    "maxHealth": 85,
+    "speed": 2.9,
+    "swimSpeed": 1.7,
+    "combatRange": 43,
+    "actionIds": ["maul"],
+    "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "tundra" },
+    "lootTable": [
+      { "type": "meat", "chance": 0.85, "amount": [6, 8] },
+      { "type": "leather", "chance": 0.85, "amount": [4, 6] }
+    ]
+  },
+
+  "leechingWorm": {
+    "type": "sandWorm",
+    "label": "Verme de Areia",
+    "iconName": "leeching-worm",
+    "iconSize": 69,
+    "maxHealth": 240,
+    "speed": 1.19,
+    "swimSpeed": 0.75,
+    "combatRange": 70,
+    "actionIds": ["maul", "swallow"],
+    "behavior": "territorial",
+    "lootTable": [
+      { "type": "fat", "chance": 1, "amount": [25, 89] },
+      { "type": "meatWhite", "chance": 1, "amount": [20, 75] },
+      { "type": "legendaryFang", "chance": 1, "amount": [1, 6] }
+    ]
+  },
+
+  "dustDevil": {
+    "type": "dustDevil",
+    "label": "Diabo de Poeira",
+    "iconName": "grasping-slug",
+    "iconSize": 42,
+    "maxHealth": 60,
+    "speed": 2.75,
+    "swimSpeed": 2.75,
+    "combatRange": 50,
+    "actionIds": ["maul"],
+    "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "desert" },
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [9, 16] },
       { "type": "leather", "chance": 1, "amount": [5, 12] }
