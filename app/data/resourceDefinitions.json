@@ -74,11 +74,11 @@
     }
   },
 
-  "fish": {
-    "type": "fish",
-    "amountRange": [10, 25],
-    "iconName": "school-of-fish",
-    "iconSize": 30,
+  "algae": {
+    "type": "algae",
+    "amountRange": [3, 7],
+    "iconName": "algae",
+    "iconSize": 25,
     "rarity": 2,
     "gatherTime": 5,
     "scatterRadius": 25,

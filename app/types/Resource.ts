@@ -27,6 +27,8 @@ export enum ResourceType {
   Cactus = "cactus",
   Meat = "meat",
   Leather = "leather",
+  Algae = "algae",
+  WhiteMeat = "whiteMeat",
   /** A dead enemy's droppable loot, sitting on the map until gathered or rotted. */
   Carcass = "carcass",
 }
@@ -37,12 +39,14 @@ export const RESOURCE_ICONS: Record<ResourceType, string> = {
   [ResourceType.Stone]: "stone-pile",
   [ResourceType.Metal]: "minerals",
   [ResourceType.Gold]: "gold-nuggets",
-  [ResourceType.Fish]: "school-of-fish",
+  [ResourceType.Fish]: "fried-fish",
   [ResourceType.Mushroom]: "mushrooms",
   [ResourceType.Cactus]: "cactus",
   [ResourceType.Meat]: "meat",
   [ResourceType.Leather]: "animal-hide",
+  [ResourceType.Algae]: "algae",
   [ResourceType.Carcass]: "carrion",
+  [ResourceType.WhiteMeat]: "chicken-leg",
 };
 
 /** Resource types units eat — the daily ration comes out of these, see stores/food.ts. */
@@ -51,6 +55,8 @@ export const FOOD_RESOURCE_TYPES: ResourceType[] = [
   ResourceType.Mushroom,
   ResourceType.Meat,
   ResourceType.Cactus,
+  ResourceType.Algae,
+  ResourceType.WhiteMeat,
 ];
 
 export interface Position {

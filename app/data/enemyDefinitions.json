@@ -80,7 +80,7 @@
     "behavior": "ambient",
     "aquatic": true,
     "habitat": { "kind": "lake" },
-    "lootTable": [{ "type": "meat", "chance": 0.7, "amount": [2, 4] }]
+    "lootTable": [{ "type": "fish", "chance": 0.7, "amount": [2, 4] }]
   },
 
   "bear": {
@@ -95,12 +95,36 @@
     "attack": 15,
     "defense": 10,
     "combatRange": 45,
-    "actionIds": ["maul"],
+    "actionIds": ["maul", "slash"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "tundra" },
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [9, 16] },
       { "type": "leather", "chance": 1, "amount": [5, 12] }
+    ]
+  },
+
+  "mammoth": {
+    "type": "mammoth",
+    "label": "Mamute",
+    "iconName": "mammoth",
+    "iconSize": 52,
+    "corpseIcon": "carrion",
+    "maxHealth": 240,
+    "speed": 1.0,
+    "swimSpeed": 0.65,
+    "attack": 35,
+    "defense": 50,
+    "combatRange": 55,
+    "actionIds": ["thrust", "charge"],
+    "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "tundra" },
+    "packBiome": "tundra",
+    "packSizeRange": [1, 3],
+    "ambientCap": 8,
+    "lootTable": [
+      { "type": "meat", "chance": 1, "amount": [20, 45] },
+      { "type": "leather", "chance": 1, "amount": [10, 25] }
     ]
   },
 
@@ -116,13 +140,98 @@
     "attack": 18,
     "defense": 5,
     "combatRange": 43,
-    "actionIds": ["maul"],
+    "actionIds": ["maul", "slash"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "tundra" },
     "lootTable": [
       { "type": "meat", "chance": 0.85, "amount": [6, 8] },
       { "type": "leather", "chance": 0.85, "amount": [4, 6] }
     ]
+  },
+
+  "parasaurolophus": {
+    "type": "parasaurolophus",
+    "label": "Parassaurolofo",
+    "iconName": "parasaurolophus",
+    "iconSize": 60,
+    "corpseIcon": "carrion",
+    "maxHealth": 105,
+    "speed": 1.9,
+    "swimSpeed": 0.9,
+    "attack": 25,
+    "defense": 5,
+    "combatRange": 60,
+    "actionIds": ["bite"],
+    "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "desert" },
+    "lootTable": [
+      { "type": "meat", "chance": 1, "amount": [12, 26] },
+      { "type": "leather", "chance": 0.85, "amount": [4, 6] }
+    ]
+  },
+
+  "velociraptor": {
+    "type": "velociraptor",
+    "label": "Velociraptor",
+    "iconName": "velociraptor",
+    "iconSize": 40,
+    "corpseIcon": "carrion",
+    "maxHealth": 35,
+    "speed": 4.5,
+    "swimSpeed": 1.5,
+    "attack": 5,
+    "defense": 1,
+    "combatRange": 40,
+    "actionIds": ["bite"],
+    "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "desert" },
+    "packBiome": "desert",
+    "packSizeRange": [2, 4],
+    "ambientCap": 8,
+    "lootTable": [
+      { "type": "whiteMeat", "chance": 0.6, "amount": [3, 4] },
+      { "type": "leather", "chance": 0.6, "amount": [2, 3] }
+    ]
+  },
+
+  "scorpion": {
+    "type": "scorpion",
+    "label": "Escorpião",
+    "iconName": "scorpion",
+    "iconSize": 12,
+    "corpseIcon": "carrion",
+    "maxHealth": 9,
+    "speed": 1.75,
+    "swimSpeed": 1,
+    "attack": 0,
+    "defense": 1,
+    "combatRange": 50,
+    "actionIds": ["poisonSting"],
+    "behavior": "ambient",
+    "habitat": { "kind": "biome", "biome": "desert" },
+    "lootTable": [
+      { "type": "meat", "chance": 0.1, "amount": [1, 1] },
+      { "type": "poison", "chance": 0.45, "amount": [5, 12] }
+    ]
+  },
+
+  "toadTeeth": {
+    "type": "toadTeeth",
+    "label": "Sapo Piranha",
+    "iconName": "toad-teeth",
+    "iconSize": 36,
+    "corpseIcon": "fish-corpse",
+    "maxHealth": 32,
+    "speed": 0.2,
+    "swimSpeed": 2.1,
+    "attack": 12,
+    "defense": 5,
+    "combatRange": 40,
+    "actionIds": ["lungeBite"],
+    "behavior": "ambient",
+    "aquatic": true,
+    "habitat": { "kind": "lake", "biome": "desert" },
+    "lootTable": [{ "type": "fish", "chance": 0.7, "amount": [3, 5] }]
   },
 
   "dustDevil": {
@@ -137,7 +246,7 @@
     "attack": 10,
     "defense": 5,
     "combatRange": 50,
-    "actionIds": ["maul"],
+    "actionIds": ["slash", "evilMagicRay"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "desert" },
     "lootTable": [
