@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { useTimeStore } from "./time";
 import { useEnemyStore } from "./enemies";
 import { useStructureStore } from "./structures";
+import { useFoodStore } from "./food";
 
 // Must match FULL_DAY_MS_AT_X1 in time.ts
 const FULL_DAY_GAME_MS = 300_000;
@@ -39,18 +40,29 @@ export const useGameStore = defineStore("game", () => {
     }
   }
 
-  /** Wires the once-per-app "end of day" horde trigger (dusk -> night). Safe to call more than once. */
+  /**
+   * Wires the once-per-app day triggers: the "end of day" horde (dusk -> night) and the
+   * daily food ration on each day rollover. Safe to call more than once.
+   */
   function startDayWatcher() {
     if (dayWatcherStarted) return;
     dayWatcherStarted = true;
 
     const timeStore = useTimeStore();
+
     watch(
       () => timeStore.phase,
       (next, prev) => {
         if (prev === "dusk" && next === "night") {
           useEnemyStore().spawnHorde(timeStore.day);
         }
+      },
+    );
+
+    watch(
+      () => timeStore.day,
+      () => {
+        useFoodStore().consumeDailyFood();
       },
     );
   }

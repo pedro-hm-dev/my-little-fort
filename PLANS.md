@@ -94,9 +94,46 @@ Ao implementar as seções 5 e 6, mover a entrada de volta pro `enemyDefinitions
 
 ---
 
-## 2. Recursos novos (ovo + loot do verme) — pequeno, sem mecânica nova
+## 2. Comida consumida por dia — IMPLEMENTADO
 
-`app/types/Resource.ts`: adiciona `Egg`, `MeatWhite`, `Fat`, `LegendaryFang` ao `ResourceType`. Nenhum entra em `resourceDefinitions.json` (esses são só drop de loot, mesmo padrão que `Meat`/`Leather` já usam hoje — nunca nascem como nó no mapa). Novo array exportado `FOOD_RESOURCE_TYPES` (em `types/Resource.ts`) marcando quais tipos contam como comida — hoje: Fish, Mushroom, Meat, MeatWhite, Fat, Egg — só a tag, sem consumidor ainda (consistente com `foodPerDay` também não ser consumido). `app/components/ResourcePanel.vue`: cor/nome/ícone pros 4 tipos novos (ícones do set `game-icons` já usado: `egg`, algo tipo `meat`/variação clara pra white meat, `fat`/gordura, e um ícone de presa/troféu pra `legendaryFang` — escolher na hora da implementação).
+O `foodPerDay` das unidades existia desde sempre mas nunca era consumido. Agora é.
+
+### Modelo
+
+`FOOD_RESOURCE_TYPES` em `app/types/Resource.ts` marca o que conta como comida: **peixe, cogumelo, carne e cacto**. O cacto entrou (o plano original não o listava) porque sem ele o bioma de deserto não tem fonte de comida nenhuma.
+
+Store nova `app/stores/food.ts`, sem estado próprio — só computeds sobre units + inventory, mais a rotina diária:
+
+- `dailyFoodNeed` — soma de `foodPerDay` de **todas** as unidades, abrigadas incluídas (estar no forte não dispensa comer). Party inicial = 8/dia.
+- `foodStock` — total no inventário entre os tipos de comida.
+- `daysOfFoodLeft`, `hasFoodShortage` — para o HUD; `Infinity`/`false` quando não há unidades.
+- `starvingUnitCount` — quantas estão famintas agora.
+- `consumeDailyFood()` — alimenta cada unidade uma vez, drenando **o maior estoque primeiro** (um consumo de 2 atravessa dois tipos se preciso). Quem fica sem ração recebe `starving: true` e perde **15% da vida máxima**; se a vida zerar, a unidade é desselecionada e removida. Comer de novo limpa a flag.
+
+Um worker (50 de vida) aguenta **7 dias** sem comer antes de morrer — abrigado no forte ou não. A cura de 1%/hora do forte (`updateFortUnits` em `app/stores/units.ts`) fica **suspensa enquanto `starving`**, senão os 24%/dia de cura passariam por cima dos 15%/dia da fome e o abrigo viraria imunidade. Voltar a comer religa a cura.
+
+`app/stores/game.ts`: `startDayWatcher` ganhou um segundo watch, em `timeStore.day`, chamando `consumeDailyFood()` na virada do dia (o primeiro watch, do horde em dusk→night, segue igual).
+
+### Feedback visual
+
+- **Marcador na unidade faminta**: ícone `stomach` laranja no canto superior-direito do ícone, tamanho fixo na tela (`20 / camera.zoom`, mesmo truque da barra de vida). Para isso o `app/utils/iconRenderer.ts` ganhou `STATUS_ICONS` (marcadores de status com cor própria, já entram no `preloadAllIcons`) e `drawIconSync` (desenho síncrono de um ícone por nome, não amarrado a uma entidade).
+- **Contador no HUD**: `estoque/consumo` ao lado do botão de inventário, verde normalmente e vermelho em escassez, com tooltip detalhando famintos.
+- **Aviso de escassez**: faixa vermelha no topo quando o estoque não cobre o dia seguinte, dizendo quanto falta.
+- **Número de dano**: a perda por fome usa o mesmo `damageNumber` do combate (só para unidades no mapa — quem está no forte não é renderizado).
+
+### Arquivos afetados
+
+- `app/types/Resource.ts`: `FOOD_RESOURCE_TYPES`.
+- `app/types/Unit.ts`: `starving?: boolean`.
+- `app/stores/food.ts` (novo): computeds de comida + `consumeDailyFood`.
+- `app/stores/game.ts`: watch de `timeStore.day` no `startDayWatcher`.
+- `app/stores/units.ts`: cura do forte suspensa enquanto faminto.
+- `app/utils/iconRenderer.ts`: `STATUS_ICONS` + `drawIconSync` + preload dos marcadores.
+- `app/components/World.vue`: marcador de fome no canvas, contador e aviso no HUD.
+
+### Adiado: recursos novos
+
+`Egg`, `MeatWhite`, `Fat` e `LegendaryFang` **saíram deste plano** — vão entrar numa adição de recursos em batch depois, junto com cor/nome/ícone no `ResourcePanel.vue`. Quando entrarem, os comestíveis (`Egg`, `MeatWhite`, `Fat`) só precisam ser somados a `FOOD_RESOURCE_TYPES` e o consumo diário passa a usá-los sem mais nenhuma mudança de código.
 
 ---
 

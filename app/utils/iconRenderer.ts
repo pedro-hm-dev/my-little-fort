@@ -36,6 +36,11 @@ const ENTITY_COLORS = {
   enemy: "#ef4444", // Red — hostile
 } as const;
 
+/** Status markers drawn over an entity rather than as one — preloaded so the render loop never waits. */
+export const STATUS_ICONS = {
+  starving: { name: "stomach", color: "#fb923c" },
+} as const;
+
 function resolveIconName(entity: Structure | Unit | Resource | Enemy): string {
   if (entity.iconName) return entity.iconName;
   return DEFAULT_ICON;
@@ -162,6 +167,24 @@ export function drawEntityIconSync(
   return false;
 }
 
+/** Synchronous draw of a named icon (status markers). Returns false if it isn't cached yet. */
+export function drawIconSync(
+  ctx: CanvasRenderingContext2D,
+  icon: { name: string; color: string },
+  position: Point,
+  size: number,
+): boolean {
+  const cached = iconImageCache.get(`${icon.name}-${icon.color}`);
+
+  if (cached) {
+    ctx.drawImage(cached, position.x - size / 2, position.y - size / 2, size, size);
+    return true;
+  }
+
+  buildIconImage(icon.name, icon.color);
+  return false;
+}
+
 /**
  * Preload all icons from structure, unit, and resource definitions
  */
@@ -189,6 +212,11 @@ export async function preloadAllIcons(): Promise<void> {
   // Collect all icon names from enemies (red)
   for (const enemyDef of Object.values(enemyDefinitions)) {
     iconColorPairs.push({ name: enemyDef.iconName, color: ENTITY_COLORS.enemy });
+  }
+
+  // Status markers (own colors, not tied to an entity type)
+  for (const icon of Object.values(STATUS_ICONS)) {
+    iconColorPairs.push({ name: icon.name, color: icon.color });
   }
 
   // Preload all unique icon+color combinations

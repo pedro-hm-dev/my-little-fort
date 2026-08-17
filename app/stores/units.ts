@@ -177,8 +177,8 @@ export const useUnitStore = defineStore("units", () => {
     for (const unit of units.value.values()) {
       if (!unit.insideFortId) continue;
 
-      // Heal: 1% maxHealth per game hour
-      const healPerMs = unit.maxHealth / (100 * (FULL_DAY_GAME_MS / 24));
+      // Heal: 1% maxHealth per game hour — suspended while starving, so shelter can't outheal hunger.
+      const healPerMs = unit.starving ? 0 : unit.maxHealth / (100 * (FULL_DAY_GAME_MS / 24));
       const newHealth = Math.min(unit.maxHealth, unit.health + healPerMs * gameDeltaMs);
 
       // Advance reproduction

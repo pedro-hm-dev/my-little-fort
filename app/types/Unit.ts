@@ -23,6 +23,8 @@ export interface Unit {
   efficiency: number;
   baseEfficiency: number;
   foodPerDay: number;
+  /** Went unfed at the last day rollover — losing health each day until it eats again. */
+  starving?: boolean;
   reproductionTimeHours: number;
   // Fort state
   insideFortId?: string;

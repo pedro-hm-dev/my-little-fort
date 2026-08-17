@@ -22,6 +22,14 @@ export enum ResourceType {
   Leather = "leather",
 }
 
+/** Resource types units eat — the daily ration comes out of these, see stores/food.ts. */
+export const FOOD_RESOURCE_TYPES: ResourceType[] = [
+  ResourceType.Fish,
+  ResourceType.Mushroom,
+  ResourceType.Meat,
+  ResourceType.Cactus,
+];
+
 export interface Position {
   x: number;
   y: number;
