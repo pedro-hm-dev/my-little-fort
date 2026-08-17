@@ -39,32 +39,6 @@
       <GameClock />
     </div>
 
-    <!-- Food stock — top right, left of the inventory button -->
-    <div class="absolute top-4 right-16 z-50">
-      <div
-        :class="foodStore.hasFoodShortage ? 'border-red-500/60' : 'border-green-500/30'"
-        :title="foodTooltip"
-        class="flex items-center gap-2 px-2.5 py-2 border bg-black/70 backdrop-blur-sm font-mono text-xs"
-      >
-        <UIcon
-          :class="foodStore.hasFoodShortage ? 'text-red-400' : 'text-green-500'"
-          name="i-game-icons-meal"
-          class="size-4 shrink-0"
-        />
-
-        <span
-          :class="foodStore.hasFoodShortage ? 'text-red-300' : 'text-green-300'"
-          class="font-bold tabular-nums"
-        >
-          {{ foodStore.foodStock }}
-        </span>
-
-        <span :class="foodStore.hasFoodShortage ? 'text-red-800' : 'text-green-800'">
-          /{{ foodStore.dailyFoodNeed }}
-        </span>
-      </div>
-    </div>
-
     <!-- Inventory button — top right -->
     <div class="absolute top-4 right-4 z-50">
       <button
@@ -74,18 +48,6 @@
         <UIcon name="i-game-icons-open-chest" class="size-5" />
       </button>
     </div>
-
-    <!-- Food shortage warning -->
-    <Transition name="hud">
-      <div
-        v-if="foodStore.hasFoodShortage"
-        class="absolute top-32 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 border border-red-500/60 bg-black/90 font-mono text-xs backdrop-blur-sm pointer-events-none"
-      >
-        <UIcon name="i-game-icons-meal" class="size-4 text-red-400 shrink-0" />
-
-        <span class="text-red-300 uppercase tracking-widest">{{ foodShortageMessage }}</span>
-      </div>
-    </Transition>
 
     <!-- Pending reproduction HUD -->
     <Transition name="hud">
@@ -158,7 +120,6 @@ import { useUnitStore } from "@/stores/units";
 import { useEnemyStore } from "@/stores/enemies";
 import { useCombatStore } from "@/stores/combat";
 import { useGameStore } from "@/stores/game";
-import { useFoodStore } from "@/stores/food";
 import { useSelectionStore } from "@/stores/selection";
 import { UnitType, type Unit } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
@@ -175,7 +136,6 @@ const unitStore = useUnitStore();
 const enemyStore = useEnemyStore();
 const combatStore = useCombatStore();
 const gameStore = useGameStore();
-const foodStore = useFoodStore();
 const selectionStore = useSelectionStore();
 const inventoryStore = useInventoryStore();
 const timeStore = useTimeStore();
@@ -214,17 +174,6 @@ const activeCommandHint = computed(() => {
   if (selectionStore.activeCommand === "shelter") return "Clique em uma estrutura com capacidade para abrigar";
   if (selectionStore.activeCommand === "gather") return "Clique em um recurso ou arraste uma área para coletar em fila";
   return "";
-});
-
-const foodTooltip = computed(
-  () =>
-    `Comida: ${foodStore.foodStock} | consumo diário: ${foodStore.dailyFoodNeed} | famintos: ${foodStore.starvingUnitCount}`,
-);
-
-const foodShortageMessage = computed(() => {
-  const missing = foodStore.dailyFoodNeed - foodStore.foodStock;
-
-  return `Faltam ${missing} de comida para amanhã — unidades vão passar fome`;
 });
 
 watch(

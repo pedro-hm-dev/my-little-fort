@@ -21,16 +21,6 @@ export const useFoodStore = defineStore("food", () => {
     return FOOD_RESOURCE_TYPES.reduce((total, type) => total + inventoryStore.getResourceAmount(type), 0);
   });
 
-  /** Whole days the current stock covers at the current population. */
-  const daysOfFoodLeft = computed(() => {
-    if (dailyFoodNeed.value <= 0) return Infinity;
-
-    return Math.floor(foodStock.value / dailyFoodNeed.value);
-  });
-
-  /** Stock won't cover the next day rollover — someone is going to starve. */
-  const hasFoodShortage = computed(() => dailyFoodNeed.value > 0 && foodStock.value < dailyFoodNeed.value);
-
   const starvingUnitCount = computed(() => useUnitStore().allUnits.filter((unit) => unit.starving).length);
 
   /** Takes `amount` rations from the inventory, draining the largest stock first. Returns what it couldn't cover. */
@@ -109,8 +99,6 @@ export const useFoodStore = defineStore("food", () => {
   return {
     dailyFoodNeed,
     foodStock,
-    daysOfFoodLeft,
-    hasFoodShortage,
     starvingUnitCount,
     consumeDailyFood,
   };

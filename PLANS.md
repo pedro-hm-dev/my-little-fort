@@ -116,10 +116,11 @@ Um worker (50 de vida) aguenta **7 dias** sem comer antes de morrer — abrigado
 
 ### Feedback visual
 
-- **Marcador na unidade faminta**: ícone `stomach` laranja no canto superior-direito do ícone, tamanho fixo na tela (`20 / camera.zoom`, mesmo truque da barra de vida). Para isso o `app/utils/iconRenderer.ts` ganhou `STATUS_ICONS` (marcadores de status com cor própria, já entram no `preloadAllIcons`) e `drawIconSync` (desenho síncrono de um ícone por nome, não amarrado a uma entidade).
-- **Contador no HUD**: `estoque/consumo` ao lado do botão de inventário, verde normalmente e vermelho em escassez, com tooltip detalhando famintos.
-- **Aviso de escassez**: faixa vermelha no topo quando o estoque não cobre o dia seguinte, dizendo quanto falta.
-- **Número de dano**: a perda por fome usa o mesmo `damageNumber` do combate (só para unidades no mapa — quem está no forte não é renderizado).
+**Sem avisos de consumo na tela** — nada de contador de estoque nem faixa de "falta comida". O único indicador é o **marcador na unidade faminta**: ícone `stomach` laranja no canto superior-direito do ícone dela, em tamanho fixo na tela (`20 / camera.zoom`, mesmo truque da barra de vida). Para isso o `app/utils/iconRenderer.ts` ganhou `STATUS_ICONS` (marcadores de status com cor própria, já entram no `preloadAllIcons`) e `drawIconSync` (desenho síncrono de um ícone por nome, não amarrado a uma entidade).
+
+A perda de vida por fome usa o mesmo `damageNumber` do combate, só para unidades no mapa (quem está no forte não é renderizado).
+
+A store expõe `dailyFoodNeed`, `foodStock` e `starvingUnitCount` como estado consultável — sem consumidor na UI hoje, mas é a superfície que os testes usam e que qualquer HUD futuro vai querer.
 
 ### Arquivos afetados
 
@@ -129,7 +130,7 @@ Um worker (50 de vida) aguenta **7 dias** sem comer antes de morrer — abrigado
 - `app/stores/game.ts`: watch de `timeStore.day` no `startDayWatcher`.
 - `app/stores/units.ts`: cura do forte suspensa enquanto faminto.
 - `app/utils/iconRenderer.ts`: `STATUS_ICONS` + `drawIconSync` + preload dos marcadores.
-- `app/components/World.vue`: marcador de fome no canvas, contador e aviso no HUD.
+- `app/components/World.vue`: marcador de fome no canvas.
 
 ### Adiado: recursos novos
 
