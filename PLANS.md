@@ -219,14 +219,17 @@ Isto **endureceu a economia de comida**: antes, matar um lobo entregava carne di
 
 ---
 
-## 4. Regiões de bioma precisam de identidade estável
+## 4. Regiões de bioma: identidade estável e contagem por bioma
 
-Hoje `biomeRegions` é um array interno de `app/stores/world.ts`, nunca exposto pela store, sem id. Pra "um verme por região" funcionar preciso:
+Hoje `biomeRegions` é um array interno de `app/stores/world.ts`, nunca exposto pela store, e sem id. Para "um verme por região" (seção 5) e para o cap por região (seção 8), preciso de:
 
-- Adicionar `id: string` em `BiomeRegion` (ex: `${biome}-${index}` na geração).
-- Expor `biomeRegions` no retorno da store (`useWorldStore()`), do jeito que `lakes`/`rivers` já são.
+- **`id: string` em `BiomeRegion`** — ex. `${biome}-${index}` na geração.
+- **`biomeRegions` exposto** no retorno da store, do jeito que `lakes`/`rivers` já são.
+- **Contagem de regiões por bioma**, salva e consultável: quantos desertos, quantas florestas, quantas tundras o mapa gerado tem. Um computed `regionCountByBiome` (`Record<BiomeType, number>`) mais um `regionsOfBiome(biome)` que devolve as regiões daquele tipo.
 
-Isso é a única mudança em `world.ts` — o resto do sistema de verme vive em `enemies.ts` + uma store nova.
+A contagem por bioma é o que torna o cap da seção 8 legível: com `biomeCap: 3` e 2 desertos, o teto do mapa para aquele bicho é `3 × regionCountByBiome.desert = 6`, e isso passa a ser um número que dá para inspecionar em vez de emergir escondido do loop de spawn. Serve também para o painel de debug do canto (que hoje mostra zoom/pan/seed) e para sanidade de geração — um mapa que sorteou zero desertos não deveria spawnar bicho de deserto nenhum, e hoje isso é silencioso.
+
+Essa é a única mudança em `world.ts`: o resto do sistema de verme vive em `enemies.ts` + uma store nova.
 
 ---
 
@@ -337,6 +340,98 @@ Dois cuidados que vão morder se forem esquecidos:
 
 ---
 
+## 8. Spawn de inimigos: taxa e cap por região de bioma — PLANEJADO
+
+Mantém a cadência **horária** que já existe, e troca o teto global por um teto **por região**.
+
+### Como funciona hoje
+
+- `game.ts` roda um check a cada hora de jogo (`AMBIENT_CHECK_INTERVAL_MS`) com 35% de chance fixa (`AMBIENT_SPAWN_CHANCE`) para **todos** os tipos de uma vez.
+- `spawnAmbient` em `enemies.ts` percorre cada tipo ambient e para no `ambientCap` do def, que é um **teto global por tipo** no mapa inteiro (default 4).
+- Resultado: a raridade de cada bicho não é configurável (todos dividem os mesmos 35%), e um mapa com 2 desertos tem exatamente o mesmo número de diabos de poeira que um mapa com 1.
+
+### Como deve funcionar
+
+Dois campos novos por def em `enemyDefinitions.json`:
+
+- **`spawnRate`** — um número único que já **é** a raridade: a chance, por hora de jogo e por região do habitat, de nascer um indivíduo ali. Valor baixo = raro. Substitui o `AMBIENT_SPAWN_CHANCE` global de 0,35, que passa a não existir.
+- **`biomeCap`** — teto **por região**, não do mapa.
+
+O ciclo passa a ser: a cada hora de jogo, para cada região que casa com o `habitat` do bicho, rola `spawnRate`; se passar, nasce um, desde que a região ainda não tenha chegado no `biomeCap`.
+
+Exemplo com `spawnRate: 0.25` e `biomeCap: 3` num mapa com **2 desertos**: cada deserto rola 25% por hora, então em ~12 horas de jogo cada um tende a encher os 3 e para. O mapa comporta **até 6**. Com 1 deserto, comporta 3 — o teto escala com a geografia gerada, que é o ponto.
+
+Um bicho raro fica `spawnRate: 0.03`; um bicho comum, `spawnRate: 0.5`. Não há campo de quantidade separado: a quantidade emerge da taxa somada ao cap.
+
+### Dependências e pontos de atenção
+
+- **Depende da seção 4** (`id` em `BiomeRegion`, `biomeRegions` exposto e a contagem por bioma). Sem identidade estável de região não há como contar "quantos já existem nesta região".
+- **Contagem por região precisa de um teste de pertencimento.** Duas opções: guardar `regionId` no `Enemy` no momento do spawn (barato, mas fica errado assim que o bicho anda para fora), ou contar por `pointInPolygon(enemy.position, region.outline)` na hora de rolar (sempre correto e roda 1x por hora, custo irrelevante). **Recomendo o segundo.**
+- **Habitats que não são bioma.** O lobo usa `habitat: {kind:"resource", resourceType:"wood"}` e a piranha `{kind:"lake"}`. A generalização natural é o cap ser **por instância do habitat**: por região de bioma para `kind:"biome"`, por lago para `kind:"lake"`. Para `kind:"resource"` não há instância óbvia — decisão aberta.
+- **O `ambientCap` global sai de cena**, substituído pelo `biomeCap`. O `packBiome`/`packSizeRange` do lobo continua fazendo sentido como "nasce em grupo", e é ortogonal ao `spawnRate` — vale checar na hora se dá para unificar.
+- **Onde fica o gatilho:** continua no `updateGame` de `game.ts`, no mesmo `AMBIENT_CHECK_INTERVAL_MS` de hoje. O que muda é que a rolagem passa a ser por tipo **e** por região, em vez de uma rolagem global.
+
+### Decisões abertas
+
+- **Cap para habitat de lago e de recurso:** por lago resolve a piranha. Para o lobo (habitat `resource`), o cap volta a ser global por tipo, ou passa a ser por região de bioma da posição sorteada?
+- **Números por bicho:** `spawnRate` e `biomeCap` de cada um dos 7 inimigos.
+
+---
+
+## 9. Performance — PLANEJADO (prioridade alta, o jogo está pesado)
+
+O loop roda tudo a 60fps sobre stores profundamente reativas, e o render não faz culling. Abaixo os candidatos que encontrei lendo o código, ordenados por **ganho ÷ esforço**. A regra é medir antes de mexer.
+
+### Medir primeiro
+
+Antes de otimizar nada: **Performance profile do Chrome DevTools** com o jogo em x10 (que é onde dói mais), gravando ~10 segundos. O que interessa no flame chart é a divisão entre `render()`, os quatro `update*` e o tempo gasto dentro do runtime do Vue (`reactiveEffect`, `triggerRefValue`). Isso decide se o gargalo é desenho ou reatividade, e evita otimizar o lado errado. Vale também rodar com poucos e com muitos inimigos, para separar custo fixo de custo por entidade.
+
+### A. `drawEntityIcon` async no render loop (ganho alto, esforço mínimo)
+
+`render()` em `World.vue` chama `void drawEntityIcon(...)` para **cada** recurso, estrutura, inimigo e unidade — e a função é `async`. Cada chamada aloca uma Promise e um microtask, mesmo quando o ícone já está no cache (o caminho de cache retorna antes do `await`, mas a função ainda é assíncrona). Com ~35 recursos + dezenas de entidades × 60fps, são milhares de Promises por segundo, criando pressão de GC e ordem de desenho não determinística.
+
+**`drawEntityIconSync` já existe** em `iconRenderer.ts` e não é usado em lugar nenhum. É trocar a chamada. Deve ser a primeira coisa a fazer.
+
+### B. Culling de viewport (ganho alto, esforço baixo)
+
+Nenhum dos laços de entidade em `render()` testa se a entidade está visível — com zoom-in, a esmagadora maioria dos `drawImage` é descartada pelo canvas depois de já ter custado. `circleIntersectsRect` já existe em `utils/geometry.ts` (é usado na seleção por área) e a `drawGrid` já calcula a caixa visível a partir de `camera.panX/panY/zoom` — extrair esse cálculo para uma função e filtrar cada laço por ela.
+
+Bônus: o `resourceStore` já tem um `SpatialGrid`, então `getResourcesInRadius` pode substituir o laço sobre `allResources` direto.
+
+### C. Água re-renderizada por frame (ganho médio, esforço baixo)
+
+`drawTerrain` chama `createRadialGradient` **por lago, por frame**, e desenha todos os lagos e rios como polígonos, sem culling. A textura de bioma já é pré-renderizada num canvas offscreen (`buildBiomeTexture`) — a água pode entrar na mesma estratégia: desenhar lagos e rios uma vez num canvas offscreen na geração do mundo, e no frame virar um único `drawImage`.
+
+### D. Reatividade profunda sobre posições (ganho potencialmente o maior, esforço alto)
+
+`units`, `enemies` e `resources` são `ref<Map<string, T>>`, o que faz o Vue tornar **profundamente reativo** cada objeto dentro do Map. Os loops de update mutam `position.x`/`position.y` de cada entidade a cada frame, e cada uma dessas mutações passa pelo sistema reativo. Além disso os computeds `allUnits`/`allEnemies`/`allResources` fazem `Array.from(map.values())` e são invalidados por essas mutações, então **recriam o array a cada frame** — e são acessados várias vezes por frame, em `updateCombat`, `updateEnemyAI`, `render` e no `foodStore`.
+
+Caminhos possíveis, do menos ao mais invasivo:
+
+1. **Cachear os arrays por frame**: pegar `allEnemies` uma vez no início do frame e passar adiante, em vez de reacessar o computed em cada função.
+2. **`shallowRef` no Map** e disparar a reatividade manualmente só quando a UI precisa (contagem de unidades, inventário) — as posições não precisam ser reativas, quem lê elas é o canvas, que redesenha de qualquer jeito.
+3. **Separar posição do objeto reativo**: manter `position` em arrays planos (`Float32Array`) indexados, fora do alcance do Vue.
+
+O (1) é barato e vale fazer junto de A e B. O (2) é o que provavelmente traz o salto grande. O (3) só se o profile mostrar que ainda vale.
+
+### E. Alocação por frame nos updates (ganho médio, esforço médio)
+
+`updateUnitPositions` faz `units.value.set(unit.id, { ...unit, ... })` em vários caminhos — um objeto novo por unidade, por frame, no caminho de coleta. Como o objeto já está no Map, mutar o campo direto (como o código já faz para `position`) evita a alocação e a invalidação do computed. Mesma coisa nos vários `updateUnit`/`set` de `attackTarget`, `gatherResources` e afins, que rodam por comando e não por frame — esses são menos urgentes.
+
+### F. SpatialGrid reconstruído duas vezes por frame (ganho baixo, esforço baixo)
+
+`updateCombat` faz `unitGrid.rebuild(...)` e `enemyGrid.rebuild(...)` a cada frame, o que limpa e reinsere tudo, alocando arrays de célula. A classe já tem `update(entity)`, que só re-hasheia quem trocou de célula. Só vale depois de medir — com poucas entidades o `rebuild` é barato, e ele tem a vantagem de ser à prova de dessincronização.
+
+### G. Efeitos e o DOM
+
+`CombatEffects.vue` renderiza os efeitos como elementos do DOM com transições CSS, não no canvas. Em combate grande (horda + números de dano + AOE) isso vira muitos nós criados e destruídos por segundo. Se o profile apontar tempo em layout/recalc de estilo, mover os efeitos para o canvas resolve de uma vez — mas é reescrita, então só com evidência.
+
+### Ordem sugerida
+
+**A → B → C → D(1)** de uma vez: são todos localizados, de baixo risco, e juntos devem dar a maior parte do ganho. Medir de novo. Só então decidir entre **D(2)**, **E** e **G** com base no profile, em vez de por palpite.
+
+---
+
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
@@ -347,6 +442,8 @@ Dois cuidados que vão morder se forem esquecidos:
 5. **Verme: spawn/rota/comportamento** (seção 5).
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
 7. **Unidades passivas** (seção 7) — independente do verme, pode entrar a qualquer momento.
+8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
+9. **Performance** (seção 9) — **fora da fila, prioridade alta**: o jogo já está pesado hoje, e cada sistema novo piora. Os itens A–C são baratos e podem entrar antes de qualquer feature.
 
 ## Verificação
 
