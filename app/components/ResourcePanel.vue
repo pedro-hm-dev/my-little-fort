@@ -106,7 +106,7 @@
 
 <script setup lang="ts">
 import { useInventoryStore } from "@/stores/inventory";
-import { ResourceType } from "@/types/Resource";
+import { RESOURCE_ICONS, ResourceType } from "@/types/Resource";
 
 const inventoryStore = useInventoryStore();
 
@@ -122,6 +122,7 @@ const resourceColors: Record<ResourceType, string> = {
   [ResourceType.Cactus]: "#65a30d",
   [ResourceType.Meat]: "#ef4444",
   [ResourceType.Leather]: "#92400e",
+  [ResourceType.Carcass]: "#7f1d1d",
 };
 
 const resourceNames: Record<ResourceType, string> = {
@@ -134,18 +135,7 @@ const resourceNames: Record<ResourceType, string> = {
   [ResourceType.Cactus]: "Cacto",
   [ResourceType.Meat]: "Carne",
   [ResourceType.Leather]: "Couro",
-};
-
-const resourceIcons: Record<ResourceType, string> = {
-  [ResourceType.Wood]: "i-game-icons-pine-tree",
-  [ResourceType.Stone]: "i-game-icons-stone-pile",
-  [ResourceType.Metal]: "i-game-icons-minerals",
-  [ResourceType.Gold]: "i-game-icons-gold-nuggets",
-  [ResourceType.Fish]: "i-game-icons-school-of-fish",
-  [ResourceType.Mushroom]: "i-game-icons-mushrooms",
-  [ResourceType.Cactus]: "i-game-icons-cactus",
-  [ResourceType.Meat]: "i-game-icons-meat",
-  [ResourceType.Leather]: "i-game-icons-animal-hide",
+  [ResourceType.Carcass]: "Carcaça",
 };
 
 const sortedInventory = computed(() =>
@@ -158,7 +148,9 @@ function getRelativeWidth(amount: number): number {
 }
 
 function getResourceIcon(type: ResourceType): string {
-  return resourceIcons[type] ?? "i-game-icons-chest";
+  const icon = RESOURCE_ICONS[type];
+
+  return icon ? `i-game-icons-${icon}` : "i-game-icons-chest";
 }
 
 function getResourceColor(type: ResourceType): string {

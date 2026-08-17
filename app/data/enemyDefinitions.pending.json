@@ -4,6 +4,7 @@
     "label": "Verme de Areia",
     "iconName": "leeching-worm",
     "iconSize": 69,
+    "corpseIcon": "carrion",
     "maxHealth": 240,
     "speed": 1.19,
     "swimSpeed": 0.75,

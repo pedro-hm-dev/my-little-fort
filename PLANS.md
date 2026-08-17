@@ -161,7 +161,7 @@ Retaliação e dano já funcionavam para inimigo-contra-inimigo (`retaliate` e `
 
 ### Fogo amigo e loot
 
-`updateCombat` não sabe quem desferiu o golpe fatal, então um inimigo morto por outro inimigo também deixa loot. Ou seja, o jogador recebe o loot de um inimigo morto por outro. Deixado assim de propósito por ora; se incomodar, o lugar de corrigir é registrar o autor do golpe no `applyImpact` e condicionar o `grantLoot`.
+`updateCombat` não sabe quem desferiu o golpe fatal, então um inimigo morto por outro inimigo também deixa loot. Isso deixou de ser um problema quando o loot passou a cair no chão como carcaça — ver seção 3b: o verme limpando o deserto gera carcaças, mas o jogador ainda precisa ir buscar, o que é exatamente a ideia de "loot farm".
 
 ### Arquivos afetados
 
@@ -171,6 +171,50 @@ Retaliação e dano já funcionavam para inimigo-contra-inimigo (`retaliate` e `
 - `app/stores/combat.ts`: `findEnemyTarget` considerando rivais.
 
 Nenhum def em `enemyDefinitions.json` tem a flag hoje, então o comportamento em jogo está inalterado — só o `leechingWorm` do arquivo pendente a traz ligada.
+
+---
+
+## 3b. Loot no chão: carcaças — IMPLEMENTADO
+
+Substitui o loot automático. Antes, matar um inimigo teleportava o loot para o inventário — o jogador não fazia nada, e um "loot farm" como o verme não valeria de nada. Agora a morte deixa um recurso coletável no mapa.
+
+### Modelo
+
+`ResourceType.Carcass` novo, e `Resource` ganha dois campos opcionais:
+
+- `contents?: ResourceType[]` — o loot **já rolado**, uma entrada por unidade de `amount`, **embaralhado** (uma coleta parcial rende um mix, não só o primeiro tipo da tabela).
+- `decayRemainingMs?: number` — tempo de jogo restante antes de apodrecer.
+
+Isso faz a carcaça ser um `Resource` comum, então herda **todo** o pipeline existente de graça: hit-test de clique, comando de coletar, fila de gather, drag-select de área, halo de alvo, barra de progresso, `gatherAll`, `depleteResource` e o spatial grid.
+
+### Morte → carcaça
+
+`grantLoot` em `app/stores/combat.ts` virou `dropCarcass`: rola a `lootTable`, expande em itens individuais, embaralha e cria **um** `Resource` na posição da morte. Se a tabela não rolar nada (o saqueador tem 16% de chance disso), **nenhuma carcaça é criada** — não existe carcaça vazia.
+
+Ícone vem do dado: campo `corpseIcon` novo em cada def de `enemyDefinitions.json` — bicho → `carrion`, piranha → `fish-corpse`, humanoide → `swap-bag`. Desenhada a 80% do tamanho do inimigo vivo. O `preloadAllIcons` já carrega os `corpseIcon` junto (com a cor de recurso, não de inimigo).
+
+### Coleta
+
+Em `updateUnitPositions`, cada tick de coleta faz `resource.contents?.shift() ?? resource.type` — a carcaça entrega o próximo item de dentro, e qualquer outro recurso segue entregando o próprio tipo. O `gatherNumber` mostra o ícone do **item real** que saiu, via `RESOURCE_ICONS` novo em `app/types/Resource.ts` (que o `ResourcePanel.vue` passou a consumir também, em vez de manter um mapa duplicado).
+
+### Apodrecimento
+
+**8 horas de jogo** (`CARCASS_DECAY_MS`, um terço de um dia = 100.000ms de jogo). `resourceStore.decayCarcasses(gameDeltaMs)` roda no game loop do `World.vue`, logo depois do `updateCombat`. Recursos normais do mapa não têm `decayRemainingMs` e nunca apodrecem; com o jogo pausado (`gameDeltaMs === 0`) a janela não corre.
+
+### Interação com o sistema de comida (seção 2)
+
+Isto **endureceu a economia de comida**: antes, matar um lobo entregava carne direto no inventário e ajudava a cobrir o consumo diário. Agora é preciso mandar alguém buscar dentro da janela de 8 horas. Caçar deixou de ser fonte passiva de comida e passou a competir por mão de obra com a coleta normal. Vale sentir em jogo antes de mexer nos números.
+
+### Arquivos afetados
+
+- `app/types/Resource.ts`: `Carcass`, `contents`, `decayRemainingMs`, `RESOURCE_ICONS`.
+- `app/data/enemyDefinitions.json` (+ o pendente): `corpseIcon` por inimigo.
+- `app/stores/combat.ts`: `dropCarcass` no lugar de `grantLoot`.
+- `app/stores/resources.ts`: `decayCarcasses`.
+- `app/stores/units.ts`: coleta puxando de `contents`, ícone do item no efeito.
+- `app/utils/iconRenderer.ts`: preload dos `corpseIcon`.
+- `app/components/World.vue`: tick do apodrecimento no loop.
+- `app/components/ResourcePanel.vue`: usa `RESOURCE_ICONS`, cobre o tipo novo.
 
 ---
 
@@ -254,6 +298,7 @@ interface WormNest {
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
 2. **Comida consumida por dia** (seção 2) — independente do verme; recursos novos ficaram para um batch posterior.
 3. **`hostileToAll`** (seção 3) — pequeno, testável isoladamente com qualquer inimigo existente antes do verme entrar em cena.
+   - **3b. Carcaças** — loot vira recurso no chão; pré-requisito para o verme fazer sentido como loot farm.
 4. **Identidade de região** (seção 4) — pré-requisito mecânico pro verme.
 5. **Verme: spawn/rota/comportamento** (seção 5).
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.

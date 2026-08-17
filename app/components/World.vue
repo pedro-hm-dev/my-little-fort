@@ -337,6 +337,7 @@ const gameLoop = (timestamp: number) => {
   unitStore.updateFortUnits(gameDeltaMs);
   enemyStore.updateEnemyAI(gameDeltaMs);
   combatStore.updateCombat(gameDeltaMs);
+  resourceStore.decayCarcasses(gameDeltaMs);
   gameStore.updateGame(gameDeltaMs);
 
   render();

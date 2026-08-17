@@ -3,7 +3,7 @@ import { defineStore } from "pinia";
 import { UnitType, type Unit, type Position } from "@/types/Unit";
 import type { Structure } from "@/types/Structure";
 import type { Enemy } from "@/types/Enemy";
-import type { Resource } from "@/types/Resource";
+import { RESOURCE_ICONS, type Resource } from "@/types/Resource";
 import unitDefs from "@/data/unitDefinitions.json";
 import structureDefs from "@/data/structureDefinitions.json";
 import { useStructureStore } from "./structures";
@@ -505,15 +505,18 @@ export const useUnitStore = defineStore("units", () => {
           const newProgress = (unit.gatherProgress || 0) + gatherRate;
 
           if (newProgress >= 1) {
+            // A carcass yields whatever loot is left inside it; every other resource yields its own type.
+            const collected = resource.contents?.shift() ?? resource.type;
             const depleted = resourceStore.depleteResource(unit.targetResource, 1);
-            inventoryStore.addResource(resource.type, 1);
+
+            inventoryStore.addResource(collected, 1);
             effectsStore.spawn({
               kind: "gatherNumber",
               x: unit.position.x,
               y: unit.position.y,
               offsetX: (Math.random() - 0.5) * 20,
               amount: 1,
-              iconName: resource.iconName,
+              iconName: RESOURCE_ICONS[collected] ?? resource.iconName,
               durationMs: 900,
             });
 

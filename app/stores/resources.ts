@@ -66,6 +66,19 @@ export const useResourceStore = defineStore("resources", () => {
     return false;
   }
 
+  /** Ages carcasses by the game delta and clears the ones that rotted through. Called every frame. */
+  function decayCarcasses(gameDeltaMs: number) {
+    if (gameDeltaMs <= 0) return;
+
+    for (const resource of resources.value.values()) {
+      if (resource.decayRemainingMs === undefined) continue;
+
+      resource.decayRemainingMs -= gameDeltaMs;
+
+      if (resource.decayRemainingMs <= 0) removeResource(resource.id);
+    }
+  }
+
   function initialize(fortPosition: { x: number; y: number }) {
     const camera = useCameraStore();
     const worldStore = useWorldStore();
@@ -92,6 +105,7 @@ export const useResourceStore = defineStore("resources", () => {
     getResourcesInRadius,
     getNearestResource,
     depleteResource,
+    decayCarcasses,
     initialize,
   };
 });

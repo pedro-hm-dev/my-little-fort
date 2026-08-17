@@ -8,7 +8,7 @@ import { ResourceType } from "@/types/Resource";
 import { useUnitStore } from "./units";
 import { useEnemyStore } from "./enemies";
 import { useStructureStore } from "./structures";
-import { useInventoryStore } from "./inventory";
+import { useResourceStore } from "./resources";
 import { useSelectionStore } from "./selection";
 import { useEffectsStore } from "./effects";
 import { distance } from "@/utils/geometry";
@@ -18,6 +18,15 @@ import { SpatialGrid } from "@/utils/spatialGrid";
 const ACTION_DEFS = actionDefs as unknown as Record<string, ActionDefinition>;
 type EnemyDefKey = keyof typeof enemyDefs;
 
+// Must match FULL_DAY_MS_AT_X1 in time.ts
+const FULL_DAY_GAME_MS = 300_000;
+
+/** A carcass rots away 8 game hours after the kill, so loot on the ground is a window, not a depot. */
+const CARCASS_DECAY_MS = (FULL_DAY_GAME_MS / 24) * 8;
+const CARCASS_GATHER_TIME = 4;
+/** Carcass icon is drawn a bit smaller than the living enemy it came from. */
+const CARCASS_ICON_SCALE = 0.8;
+const DEFAULT_CORPSE_ICON = "carrion";
 
 interface Target {
   id: string;
@@ -250,15 +259,45 @@ export const useCombatStore = defineStore("combat", () => {
     };
   }
 
-  function grantLoot(enemy: Enemy) {
-    const def = enemyDefs[enemy.type as EnemyDefKey] as unknown as { lootTable?: LootDrop[] } | undefined;
-    const inventoryStore = useInventoryStore();
+  /**
+   * Rolls the enemy's loot table into a carcass dropped where it died, instead of teleporting the
+   * loot into the inventory — the player has to send someone to gather it before it rots.
+   */
+  function dropCarcass(enemy: Enemy) {
+    const def = enemyDefs[enemy.type as EnemyDefKey] as unknown as
+      | { lootTable?: LootDrop[]; corpseIcon?: string }
+      | undefined;
+    const contents: ResourceType[] = [];
 
     for (const drop of def?.lootTable ?? []) {
       if (Math.random() > drop.chance) continue;
+
       const amount = Math.round(drop.amount[0] + Math.random() * (drop.amount[1] - drop.amount[0]));
-      if (amount > 0) inventoryStore.addResource(drop.type as ResourceType, amount);
+
+      for (let item = 0; item < amount; item++) contents.push(drop.type as ResourceType);
     }
+
+    if (contents.length === 0) return;
+
+    // Shuffled so a partial gather yields a mix, not all of the first drop type.
+    for (let i = contents.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [contents[i], contents[j]] = [contents[j]!, contents[i]!];
+    }
+
+    useResourceStore().addResource({
+      id: `carcass-${enemy.id}`,
+      type: ResourceType.Carcass,
+      position: { ...enemy.position },
+      amount: contents.length,
+      maxAmount: contents.length,
+      iconName: def?.corpseIcon ?? DEFAULT_CORPSE_ICON,
+      iconSize: Math.round(enemy.iconSize * CARCASS_ICON_SCALE),
+      gatherTime: CARCASS_GATHER_TIME,
+      possibleTerrainTypes: ["land", "water"],
+      contents,
+      decayRemainingMs: CARCASS_DECAY_MS,
+    });
   }
 
   /** Called every frame with the scaled game delta, after unit/enemy movement has been applied. */
@@ -290,7 +329,7 @@ export const useCombatStore = defineStore("combat", () => {
 
     for (const enemy of enemyStore.allEnemies) {
       if (enemy.health <= 0) {
-        grantLoot(enemy);
+        dropCarcass(enemy);
         enemyStore.removeEnemy(enemy.id);
       }
     }

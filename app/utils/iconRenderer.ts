@@ -209,9 +209,12 @@ export async function preloadAllIcons(): Promise<void> {
     });
   }
 
-  // Collect all icon names from enemies (red)
+  // Collect all icon names from enemies (red), plus the carcass each one leaves behind (a resource)
   for (const enemyDef of Object.values(enemyDefinitions)) {
     iconColorPairs.push({ name: enemyDef.iconName, color: ENTITY_COLORS.enemy });
+
+    const corpseIcon = (enemyDef as { corpseIcon?: string }).corpseIcon;
+    if (corpseIcon) iconColorPairs.push({ name: corpseIcon, color: ENTITY_COLORS.resource });
   }
 
   // Status markers (own colors, not tied to an entity type)
