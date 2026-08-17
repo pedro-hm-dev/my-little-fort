@@ -137,9 +137,40 @@ Um worker (50 de vida) aguenta **7 dias** sem comer antes de morrer — abrigado
 
 ---
 
-## 3. Traço reutilizável `hostileToAll`
+## 3. Traço reutilizável `hostileToAll` — IMPLEMENTADO
 
-Campo `hostileToAll?: boolean` em `app/types/Enemy.ts` (dado, não hardcoded — mesmo espírito do refactor de hábitat). Em `app/stores/combat.ts`, `findEnemyTarget(enemy)`: hoje só busca no `unitGrid` (unidades do player). Quando `enemy.hostileToAll` é true, busca também no `enemyGrid` (já reconstruído por frame pelo D-perf, excluindo o próprio id) e escolhe o mais próximo entre as duas listas. Isso não muda o comportamento de nenhum inimigo hoje (só o verme vai ter a flag), mas fica pronto pra qualquer bicho futuro.
+Campo `hostileToAll?: boolean` em `app/types/Enemy.ts` — dado, não hardcoded, mesmo espírito do refactor de hábitat. `createEnemy` copia do def com o mesmo padrão de `aquatic` (`?? false`), então qualquer bicho futuro herda o comportamento só com JSON.
+
+### Escolha de alvo
+
+`findEnemyTarget` em `app/stores/combat.ts` buscava só no `unitGrid`. Agora, quando a flag está ligada, busca também no `enemyGrid` excluindo o próprio id e fica com **o mais próximo entre os dois** — não há preferência por unidade do jogador. O fallback de bater no forte (`behavior === "horde"`) continua no fim, inalterado.
+
+Para isso o `SpatialGrid.findNearest` ganhou um quarto parâmetro `excludeId?: string`, espelhando o que o `hasEntityWithinRadius` já tinha. Sem ele o inimigo se acharia a si mesmo a distância 0 e nunca miraria nada.
+
+### Perseguição (não estava no plano, mas sem isso a flag não funciona)
+
+`updateEnemyAI` em `app/stores/enemies.ts` resolvia o alvo só com `unitStore.getUnit(...)`. Com um alvo inimigo isso devolvia `undefined`, então o bicho **adquiria o rival e ficava parado** se ele estivesse fora do alcance da arma. Passou a resolver dos dois lados:
+
+```ts
+const target = unitStore.getUnit(enemy.combatTargetId) ?? enemies.value.get(enemy.combatTargetId);
+```
+
+O leash de desistência (`MAX_CHASE_DISTANCE` / `MAX_CHASE_TIME_MS`) se aplica igual a perseguição de rival. A seção 5 vai precisar furar esse leash para o verme `enraged`.
+
+Retaliação e dano já funcionavam para inimigo-contra-inimigo (`retaliate` e `applyDamage` sempre olharam os dois pools), então nada a fazer lá.
+
+### Fogo amigo e loot
+
+`updateCombat` não sabe quem desferiu o golpe fatal, então um inimigo morto por outro inimigo também deixa loot. Ou seja, o jogador recebe o loot de um inimigo morto por outro. Deixado assim de propósito por ora; se incomodar, o lugar de corrigir é registrar o autor do golpe no `applyImpact` e condicionar o `grantLoot`.
+
+### Arquivos afetados
+
+- `app/types/Enemy.ts`: campo novo.
+- `app/utils/spatialGrid.ts`: `excludeId` em `findNearest`.
+- `app/stores/enemies.ts`: cópia do def + resolução de alvo na perseguição.
+- `app/stores/combat.ts`: `findEnemyTarget` considerando rivais.
+
+Nenhum def em `enemyDefinitions.json` tem a flag hoje, então o comportamento em jogo está inalterado — só o `leechingWorm` do arquivo pendente a traz ligada.
 
 ---
 

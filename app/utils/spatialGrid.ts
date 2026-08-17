@@ -143,9 +143,9 @@ export class SpatialGrid<T extends { position: Position; id: string }> {
   }
 
   /**
-   * Find nearest entity to a point
+   * Find nearest entity to a point, optionally skipping one id (e.g. the querying entity itself)
    */
-  findNearest(x: number, y: number, maxRadius: number = Infinity): T | null {
+  findNearest(x: number, y: number, maxRadius: number = Infinity, excludeId?: string): T | null {
     let nearest: T | null = null;
     let nearestDist = maxRadius;
 
@@ -166,6 +166,8 @@ export class SpatialGrid<T extends { position: Position; id: string }> {
           if (!cell) continue;
 
           for (const entity of cell) {
+            if (excludeId && entity.id === excludeId) continue;
+
             const dist = Math.hypot(entity.position.x - x, entity.position.y - y);
             if (dist < nearestDist) {
               nearest = entity;

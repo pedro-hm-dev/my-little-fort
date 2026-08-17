@@ -8,6 +8,8 @@ export interface Enemy extends Combatant {
   swimSpeed: number;
   /** Confined to water — will not chase a combat target onto land. */
   aquatic?: boolean;
+  /** Has no allies: attacks rival enemies as readily as player units. */
+  hostileToAll?: boolean;
   behavior: "horde" | "ambient";
   /** Ambient enemies wander around this anchor instead of marching on the fort. */
   homePosition?: Position;

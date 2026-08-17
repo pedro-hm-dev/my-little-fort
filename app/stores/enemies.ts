@@ -50,6 +50,7 @@ function createEnemy(type: EnemyType, position: Position, behavior: "horde" | "a
     speed: def.speed,
     swimSpeed: def.swimSpeed,
     aquatic: (def as { aquatic?: boolean }).aquatic ?? false,
+    hostileToAll: (def as { hostileToAll?: boolean }).hostileToAll ?? false,
     attack: def.attack,
     defense: def.defense,
     combatRange: def.combatRange,
@@ -219,7 +220,8 @@ export const useEnemyStore = defineStore("enemies", () => {
 
         // Chase whoever it's fighting — including a unit that hit it from outside its own range — but
         // an aquatic enemy never steps onto land to do it; it just holds position until back in range.
-        const target = unitStore.getUnit(enemy.combatTargetId);
+        // A hostileToAll enemy can be locked onto a rival enemy, so resolve the target from both pools.
+        const target = unitStore.getUnit(enemy.combatTargetId) ?? enemies.value.get(enemy.combatTargetId);
         if (target) {
           const outOfRange = distance(enemy.position, target.position) > enemy.combatRange;
           enemy.chaseElapsedMs = outOfRange ? (enemy.chaseElapsedMs ?? 0) + gameDeltaMs : 0;

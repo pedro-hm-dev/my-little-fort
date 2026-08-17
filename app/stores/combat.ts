@@ -18,6 +18,7 @@ import { SpatialGrid } from "@/utils/spatialGrid";
 const ACTION_DEFS = actionDefs as unknown as Record<string, ActionDefinition>;
 type EnemyDefKey = keyof typeof enemyDefs;
 
+
 interface Target {
   id: string;
   isStructure: boolean;
@@ -69,9 +70,20 @@ export const useCombatStore = defineStore("combat", () => {
   }
 
   function findEnemyTarget(enemy: Enemy): Target | null {
-    const nearestUnit = unitGrid.findNearest(enemy.position.x, enemy.position.y, enemy.combatRange);
-    if (nearestUnit) {
-      return { id: nearestUnit.id, isStructure: false, position: nearestUnit.position, defense: nearestUnit.defense };
+    const { x, y } = enemy.position;
+    let prey: Unit | Enemy | null = unitGrid.findNearest(x, y, enemy.combatRange);
+
+    // A hostileToAll enemy has no allies, so rival enemies are prey too — whichever is nearer wins.
+    if (enemy.hostileToAll) {
+      const rival = enemyGrid.findNearest(x, y, enemy.combatRange, enemy.id);
+
+      if (rival && (!prey || distance(enemy.position, rival.position) < distance(enemy.position, prey.position))) {
+        prey = rival;
+      }
+    }
+
+    if (prey) {
+      return { id: prey.id, isStructure: false, position: prey.position, defense: prey.defense };
     }
 
     if (enemy.behavior === "horde") {
