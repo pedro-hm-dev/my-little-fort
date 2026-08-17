@@ -293,6 +293,49 @@ interface WormNest {
 
 ---
 
+## 7. Unidades passivas (capivara) — PLANEJADO
+
+Unidade que **só coleta**: não ataca, não revida, e foge quando é atacada. A primeira é a capivara (ícone `capybara`, que existe no set `game-icons`). O traço fica genérico para servir a bichos futuros (`beaver`, `donkey`, `cow`, `sheep` também estão disponíveis).
+
+### O que já funciona sem escrever código
+
+O jogo já trata "unidade sem arma" como caso de primeira classe, porque worker e miner são exatamente isso:
+
+- **Não ataca**: `attackTarget` e `attackArea` em `units.ts` já pulam quem tem `combatRange <= 0 || actionIds.length === 0`.
+- **Não revida**: `retaliate` em `combat.ts` já exige `unit.actionIds.length > 0` antes de virar o alvo.
+- **Botão "Atacar" desabilitado**: `canAttack` na `ActionBar.vue` é `primaryCombatUnit !== null`, que procura justamente `actionIds.length > 0`.
+- **Coleta**: todo o pipeline de gather é agnóstico de tipo de unidade.
+- **Reprodução**: `UnitsTab.vue` monta a lista a partir do `canReproduce` do structure def, puxando label/ícone/`foodPerDay`/`reproductionTimeHours` do unit def.
+- **Come todo dia**: `dailyFoodNeed` (seção 2) soma o `foodPerDay` de todas as unidades — a capivara entra sozinha na conta.
+
+Ou seja: uma capivara que fica parada levando pancada é só **dado**. O que precisa de código é a fuga.
+
+### O que precisa ser feito
+
+1. `UnitType.Capybara = "capybara"` em `app/types/Unit.ts`.
+2. Entrada em `unitDefinitions.json` **sem** `combatRange` e **sem** `actionIds` — o `spawnUnit` já resolve com `?? 0` e `?? []`.
+3. `"capybara"` no `canReproduce` do forte em `structureDefinitions.json` (ou de uma estrutura nova — ver decisões abertas).
+4. Traço `passive?: boolean` no def e no `Unit`, e o comportamento de fuga abaixo.
+
+### Fuga ao levar dano (o único comportamento novo)
+
+O gancho é o `retaliate` de `app/stores/combat.ts`, que hoje simplesmente sai calado quando a unidade não tem armas. Quando `unit.passive`, em vez de sair calado ele manda a unidade correr.
+
+Dois cuidados que vão morder se forem esquecidos:
+
+- **Limpar `targetResource` e `gatherQueue` junto**, senão nada acontece: em `updateUnitPositions` o branch de `targetResource` roda **antes** do movimento e faz `continue`, então uma capivara colhendo ignoraria o destino de fuga e continuaria parada no recurso.
+- **Não travar o controle do jogador.** A recomendação é a fuga ser só um `targetPosition` comum, sem estado que bloqueie ordens — o jogador pode reordenar a capivara no mesmo instante. Um `fleeing?: boolean` cosmético serve para um marcador de status, reusando o `STATUS_ICONS`/`drawIconSync` que a seção 2 já criou.
+
+### Decisões abertas
+
+- **Números**: vida, velocidade, `foodPerDay`, `reproductionTimeHours` e eficiência de coleta.
+- **Eficiência global ou por tipo de recurso?** Hoje `efficiency` é um multiplicador único para tudo. Se a ideia for "capivara é boa em comida/vegetal e ruim em pedra", isso exige eficiência por recurso — mudança de modelo que merece ser seu próprio item de plano, não um detalhe deste.
+- **Nasce no forte ou num curral?** Os ícones `barn` e `stable` existem se a preferência for uma estrutura nova.
+- **Foge para onde?** Forte mais próximo (mais útil, reusa `shelterTargetId`) ou só para o lado oposto ao atacante (mais simples, e não lota o forte).
+- **Ela pode ser abrigada?** `canReproduce` é hoje o mesmo gate para reproduzir e para abrigar, então incluí-la no forte já a deixa entrar.
+
+---
+
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
@@ -302,6 +345,7 @@ interface WormNest {
 4. **Identidade de região** (seção 4) — pré-requisito mecânico pro verme.
 5. **Verme: spawn/rota/comportamento** (seção 5).
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
+7. **Unidades passivas** (seção 7) — independente do verme, pode entrar a qualquer momento.
 
 ## Verificação
 
