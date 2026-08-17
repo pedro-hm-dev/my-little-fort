@@ -1,5 +1,12 @@
 import type { ActionDefinition, Combatant } from "@/types/Combat";
 import { distance } from "@/utils/geometry";
+import { rollDice } from "@/utils/dice";
+
+/**
+ * Armor points needed to halve incoming damage. Drives the diminishing-returns curve:
+ * each point is worth less than the last, so reduction approaches 100% without reaching it.
+ */
+const DEFENSE_HALVING_POINT = 100;
 
 /**
  * Pick a random action from `actionIds`, restricted to those currently off
@@ -33,13 +40,31 @@ export function pickAction(
   return usable[usable.length - 1]!;
 }
 
-/** Roll damage in [min, max], applying crit chance/multiplier. Returns the final amount and whether it crit. */
-export function rollDamage(action: ActionDefinition): { amount: number; crit: boolean } {
-  const [min, max] = action.damage;
-  const base = min + Math.random() * (max - min);
-  const crit = Math.random() < action.critChance;
+/** Fraction of incoming damage that survives `defense` armor points. Never reaches 0. */
+export function damageMultiplierFor(defense: number): number {
+  return DEFENSE_HALVING_POINT / (DEFENSE_HALVING_POINT + Math.max(0, defense));
+}
 
-  return { amount: crit ? base * action.critMultiplier : base, crit };
+/** Percent of incoming damage `defense` armor points absorb — for UI. */
+export function damageReductionFor(defense: number): number {
+  return (1 - damageMultiplierFor(defense)) * 100;
+}
+
+/**
+ * Roll the action's damage dice, add `scaling`% of the attacker's attack stat, apply crit,
+ * then mitigate by the defender's armor. Returns the final amount and whether it crit.
+ */
+export function rollDamage(
+  action: ActionDefinition,
+  attackerAttack: number,
+  defenderDefense: number,
+): { amount: number; crit: boolean } {
+  const base = rollDice(action.damage);
+  const scaled = base + (attackerAttack * action.scaling) / 100;
+  const crit = Math.random() < action.critChance;
+  const beforeArmor = crit ? scaled * action.critMultiplier : scaled;
+
+  return { amount: beforeArmor * damageMultiplierFor(defenderDefense), crit };
 }
 
 /** Whether `target` is within `combatant`'s engagement range. */

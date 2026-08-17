@@ -7,6 +7,8 @@
     "maxHealth": 60,
     "speed": 2.2,
     "swimSpeed": 1.2,
+    "attack": 5,
+    "defense": 5,
     "combatRange": 50,
     "actionIds": ["clubSmash"],
     "behavior": "horde",
@@ -25,6 +27,8 @@
     "maxHealth": 40,
     "speed": 2.4,
     "swimSpeed": 1.2,
+    "attack": 8,
+    "defense": 0,
     "combatRange": 220,
     "actionIds": ["hookShot"],
     "behavior": "horde",
@@ -42,6 +46,8 @@
     "maxHealth": 45,
     "speed": 3.2,
     "swimSpeed": 1.0,
+    "attack": 8,
+    "defense": 0,
     "combatRange": 40,
     "actionIds": ["bite"],
     "behavior": "ambient",
@@ -63,6 +69,8 @@
     "maxHealth": 25,
     "speed": 0.2,
     "swimSpeed": 2.6,
+    "attack": 5,
+    "defense": 0,
     "combatRange": 35,
     "actionIds": ["lungeBite"],
     "behavior": "ambient",
@@ -79,6 +87,8 @@
     "maxHealth": 120,
     "speed": 2.6,
     "swimSpeed": 1.2,
+    "attack": 15,
+    "defense": 10,
     "combatRange": 45,
     "actionIds": ["maul"],
     "behavior": "ambient",
@@ -97,6 +107,8 @@
     "maxHealth": 85,
     "speed": 2.9,
     "swimSpeed": 1.7,
+    "attack": 18,
+    "defense": 5,
     "combatRange": 43,
     "actionIds": ["maul"],
     "behavior": "ambient",
@@ -104,24 +116,6 @@
     "lootTable": [
       { "type": "meat", "chance": 0.85, "amount": [6, 8] },
       { "type": "leather", "chance": 0.85, "amount": [4, 6] }
-    ]
-  },
-
-  "leechingWorm": {
-    "type": "sandWorm",
-    "label": "Verme de Areia",
-    "iconName": "leeching-worm",
-    "iconSize": 69,
-    "maxHealth": 240,
-    "speed": 1.19,
-    "swimSpeed": 0.75,
-    "combatRange": 70,
-    "actionIds": ["maul", "swallow"],
-    "behavior": "territorial",
-    "lootTable": [
-      { "type": "fat", "chance": 1, "amount": [25, 89] },
-      { "type": "meatWhite", "chance": 1, "amount": [20, 75] },
-      { "type": "legendaryFang", "chance": 1, "amount": [1, 6] }
     ]
   },
 
@@ -133,6 +127,8 @@
     "maxHealth": 60,
     "speed": 2.75,
     "swimSpeed": 2.75,
+    "attack": 10,
+    "defense": 5,
     "combatRange": 50,
     "actionIds": ["maul"],
     "behavior": "ambient",

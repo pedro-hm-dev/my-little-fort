@@ -14,7 +14,9 @@
     "baseEfficiency": 1.0,
     "efficiency": 1.0,
     "foodPerDay": 1,
-    "reproductionTimeHours": 2
+    "reproductionTimeHours": 2,
+    "attack": 0,
+    "defense": 0
   },
 
   "soldier": {
@@ -33,6 +35,8 @@
     "efficiency": 0.7,
     "foodPerDay": 2,
     "reproductionTimeHours": 8,
+    "attack": 10,
+    "defense": 15,
     "combatRange": 55,
     "actionIds": ["thrust", "slash"]
   },
@@ -53,6 +57,8 @@
     "efficiency": 0.6,
     "foodPerDay": 1,
     "reproductionTimeHours": 5,
+    "attack": 15,
+    "defense": 0,
     "combatRange": 260,
     "actionIds": ["arrowShot", "bombArrowShot"]
   },
@@ -73,6 +79,8 @@
     "efficiency": 1.5,
     "foodPerDay": 1,
     "reproductionTimeHours": 3,
+    "attack": 8,
+    "defense": 5,
     "combatRange": 200,
     "actionIds": ["arrowShot"]
   },
@@ -92,6 +100,8 @@
     "baseEfficiency": 1.8,
     "efficiency": 1.8,
     "foodPerDay": 2,
-    "reproductionTimeHours": 10
+    "reproductionTimeHours": 10,
+    "attack": 0,
+    "defense": 5
   }
 }

@@ -29,6 +29,8 @@ export interface Unit {
   reproductionProgress?: number;
   reproductionTargetType?: UnitType;
   // Combat state (Combatant contract — see types/Combat.ts)
+  attack: number;
+  defense: number;
   combatRange: number;
   actionIds: string[];
   actionCooldowns: Record<string, number>;

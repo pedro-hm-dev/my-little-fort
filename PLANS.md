@@ -7,6 +7,7 @@
 Depois do refactor de hábitat dos inimigos (dado em vez de código, ver `enemyDefinitions.json` + `enemies.ts`), o Pedro adicionou duas entradas novas na definição — `leechingWorm` (type `sandWorm`, `behavior: "territorial"`, ação `"swallow"`) e `dustDevil` — sem lógica de código nenhuma por trás. `dustDevil` já foi resolvido (hábitat deserto, ambient normal). `leechingWorm` é um semi-boss com uma mecânica bem mais rica: patrulha uma rota dentro do bioma de origem, ataca qualquer coisa (jogador ou outro inimigo), tem um ninho com baú, é único por região de bioma (não por tipo — 2 desertos no mapa = até 2 vermes), e o jogador pode saquear o ninho a qualquer momento com 3 escolhas (ovos / baú+manter / cancelar), cada uma com consequência diferente no respawn. Junto, o Pedro pediu um sistema global de Ataque/Defesa pra unidades e inimigos.
 
 Decisões confirmadas nas perguntas de esclarecimento:
+
 - **Hostilidade**: `hostileToAll` vira um traço de dado reutilizável (não hardcoded pro verme) — qualquer inimigo futuro pode herdar esse comportamento só com JSON.
 - **Gatilho do saque**: o jogador pode clicar no ninho a **qualquer momento**, verme vivo ou não. Se o verme estiver vivo, isso o deixa imediatamente agressivo e focado no jogador (ignora o leash normal de perseguição).
 - **Ataque/Defesa**: já entram com valores base por tipo agora (não fica tudo em 0) — números propostos abaixo, ajustáveis depois de ver em jogo.
@@ -16,44 +17,80 @@ Isso substitui o plano anterior (fôlego/habilidades/DRY) como foco desta rodada
 
 ---
 
-## 1. Ataque/Defesa (base pra tudo o mais — fazer primeiro)
+## 1. Ataque/Defesa — IMPLEMENTADO (modelo estilo League of Legends + dados de RPG)
 
 ### Modelo
 
-`Combatant` (`app/types/Combat.ts`) ganha `attack: number` e `defense: number` (percentuais). `Unit` (`app/types/Unit.ts`) ganha os mesmos dois campos diretamente (não estende `Combatant`, mas já segue essa convenção estrutural pros outros campos de combate).
+`Combatant` (`app/types/Combat.ts`) ganha `attack: number` (stat plano, não percentual) e `defense: number` (pontos de armadura). `Unit` (`app/types/Unit.ts`) ganha os mesmos dois campos diretamente.
 
-Fórmula em `app/utils/combatEngine.ts`, `rollDamage`: passa a receber `attackerAttack` e `defenderDefense`, aplica
-```
-finalAmount = baseAmount * (1 + attackerAttack / 100) * (1 - defenderDefense / 100)
-```
-com a redução da defesa limitada a no máximo 80% (clamp do fator em 0.2 mínimo), pra nunca zerar dano completamente. `app/stores/combat.ts` (`applyImpact` e o splash de AOE) passa a resolver a defesa do alvo (unit/enemy → `.defense`; estrutura → 0, não tem esse stat) antes de chamar `rollDamage`.
+`ActionDefinition` troca `damage: [number, number]` por **`damage: string`** em notação de dado de RPG mais **`scaling: number`** — o percentual do `attack` do atacante que entra no golpe. O dano base é **rolagem pura, sem bônus flat** (`"2d10"`, `"4d6"` — nunca `"2d6+4"`). Roller novo em `app/utils/dice.ts` (`parseDice`/`rollDice`/`diceRange`, com cache do parse e erro alto em notação inválida); o parser aceita modificador (`+X`) por ser notação padrão, mas nenhuma ação usa.
 
-### Valores propostos (ajustar depois de testar)
+Fórmula em `app/utils/combatEngine.ts`, `rollDamage(action, attackerAttack, defenderDefense)`:
+
+```
+base        = rollDice(action.damage)
+escalado    = base + attackerAttack * action.scaling / 100
+preArmadura = crit ? escalado * critMultiplier : escalado
+final       = preArmadura * DEFENSE_HALVING_POINT / (DEFENSE_HALVING_POINT + defense)
+```
+
+`DEFENSE_HALVING_POINT = 100`: a defesa vira redução com retorno decrescente, assintótica a 100% sem nunca chegar (defesa 15 → 13,0%; 30 → 23,1%; 100 → 50%; 1000 → 90,9%). Defesa negativa é clampada em 0, então nunca amplifica dano. Crit multiplica **antes** da armadura.
+
+`app/stores/combat.ts`: `Target` ganha `defense` (resolvido junto da entidade, sem busca extra; estrutura → 0, não tem o stat), e tanto `applyImpact` quanto o splash de AOE passam `attacker.attack` + a defesa do alvo pro `rollDamage`.
+
+### Dados por ação
+
+Dado puro preservando a média base anterior. Scaling calibrado para **média 70 em melee e 50 em ranged** — ataque à distância escala menos com o stat de ataque.
+
+| Ação          | Tipo   | Dado   | Range  | Média base | Scaling |
+| ------------- | ------ | ------ | ------ | ---------- | ------- |
+| thrust        | melee  | `2d10` | [2,20] | 11,0       | 60%     |
+| slash         | melee  | `4d6`  | [4,24] | 14,0       | 80%     |
+| clubSmash     | melee  | `2d12` | [2,24] | 13,0       | 70%     |
+| bite          | melee  | `2d8`  | [2,16] | 9,0        | 55%     |
+| lungeBite     | melee  | `2d6`  | [2,12] | 7,0        | 60%     |
+| maul          | melee  | `3d10` | [3,30] | 16,5       | 95%     |
+| arrowShot     | ranged | `2d8`  | [2,16] | 9,0        | 55%     |
+| bombArrowShot | ranged | `4d8`  | [4,32] | 18,0       | 40%     |
+| hookShot      | ranged | `3d4`  | [3,12] | 7,5        | 55%     |
+
+### Valores aplicados (ajustar depois de testar)
 
 | Unidade | Ataque | Defesa |
-|---|---|---|
-| Worker | 0 | 0 |
-| Soldier | 10 | 15 |
-| Archer | 15 | 0 |
-| Hunter | 8 | 5 |
-| Miner | 0 | 5 |
+| ------- | ------ | ------ |
+| Worker  | 0      | 0      |
+| Soldier | 10     | 15     |
+| Archer  | 15     | 0      |
+| Hunter  | 8      | 5      |
+| Miner   | 0      | 5      |
 
-| Inimigo | Ataque | Defesa |
-|---|---|---|
-| Raider | 5 | 5 |
-| RaiderArcher | 8 | 0 |
-| Wolf | 8 | 0 |
-| Piranha | 5 | 0 |
-| Bear | 15 | 10 |
-| Tiger | 18 | 5 |
-| DustDevil | 10 | 5 |
+| Inimigo                  | Ataque | Defesa |
+| ------------------------ | ------ | ------ |
+| Raider                   | 5      | 5      |
+| RaiderArcher             | 8      | 0      |
+| Wolf                     | 8      | 0      |
+| Piranha                  | 5      | 0      |
+| Bear                     | 15     | 10     |
+| Tiger                    | 18     | 5      |
+| DustDevil                | 10     | 5      |
 | **SandWorm (semi-boss)** | **35** | **30** |
 
+O verme está fora do jogo por enquanto — ver "Verme desativado" abaixo.
+
 ### Arquivos afetados
-- `app/types/Combat.ts`, `app/types/Unit.ts`: campos novos.
+
+- `app/types/Combat.ts`, `app/types/Unit.ts`: campos novos + `damage`/`scaling` em `ActionDefinition`.
+- `app/utils/dice.ts` (novo): parse e rolagem de notação de dado.
 - `app/data/unitDefinitions.json`, `app/data/enemyDefinitions.json`: valores acima.
+- `app/data/actionDefinitions.json`: dados + scaling por ação.
 - `app/stores/units.ts` (`spawnUnit`), `app/stores/enemies.ts` (`createEnemy`): copiar do def pro runtime, mesmo padrão de `combatRange`/`actionIds` já existente.
 - `app/utils/combatEngine.ts`, `app/stores/combat.ts`: fórmula + resolução de defesa do alvo.
+
+### Verme desativado
+
+A entrada `leechingWorm` saiu de `enemyDefinitions.json` e está guardada em **`app/data/enemyDefinitions.pending.json`** — nenhum código importa esse arquivo, então ele não afeta o jogo. Motivo: `behavior: "territorial"`, a ação `swallow` e os recursos de loot (`fat`/`meatWhite`/`legendaryFang`) ainda não existem em código.
+
+Ao implementar as seções 5 e 6, mover a entrada de volta pro `enemyDefinitions.json` **depois** de: `swallow` em `actionDefinitions.json` (com `damage` em dado + `scaling`), os recursos novos em `ResourceType` (seção 2) e o branch `territorial` no `updateEnemyAI`. O arquivo pendente já vem com `attack`/`defense`, `hostileToAll` e `habitat` de deserto preenchidos.
 
 ---
 
@@ -72,6 +109,7 @@ Campo `hostileToAll?: boolean` em `app/types/Enemy.ts` (dado, não hardcoded —
 ## 4. Regiões de bioma precisam de identidade estável
 
 Hoje `biomeRegions` é um array interno de `app/stores/world.ts`, nunca exposto pela store, sem id. Pra "um verme por região" funcionar preciso:
+
 - Adicionar `id: string` em `BiomeRegion` (ex: `${biome}-${index}` na geração).
 - Expor `biomeRegions` no retorno da store (`useWorldStore()`), do jeito que `lakes`/`rivers` já são.
 
@@ -98,6 +136,7 @@ Estados (novos campos runtime em `Enemy`, `app/types/Enemy.ts`): `patrolRoute?: 
 - **Enfurecido** (raid do ninho com o verme vivo — ver seção 6): `enraged: true` força o alvo pro jogador mais próximo (ou o forte, se não achar unidade) e ignora `MAX_CHASE_DISTANCE`/`MAX_CHASE_TIME_MS` (o leash de desistência que já existe) enquanto durar — as unidades vão realmente precisar lutar ou fugir, não só esperar ele desistir.
 
 ### Arquivos afetados
+
 - `app/types/Enemy.ts`: `behavior` ganha `"territorial"`; campos de patrulha/ninho/enraged acima; `hostileToAll`.
 - `app/stores/world.ts`: id + export de `biomeRegions`.
 - `app/stores/enemies.ts`: geração de rota, spawn único por região, branch de movimento territorial.
@@ -119,6 +158,7 @@ interface WormNest {
   respawnAtDay: number | null;     // quando volta a existir um verme aqui
 }
 ```
+
 - `initialize()`: um nest por verme gerado (seção 5).
 - `raid(nestId, choice: "eggs" | "loot" | "cancel")`:
   - `"eggs"`: `inventoryStore.addResource(Egg, rolagem generosa ex. 15-30)`; agenda respawn em `baseWeeks * 3` (200% a mais, não acumulado — sempre 3x a base, nunca 9x).
@@ -132,6 +172,7 @@ interface WormNest {
 `app/components/World.vue`: ninho renderizado com ícone de baú (`locked-chest` normalmente, `open-treasure-chest` se `state==="cooldown"`), no mesmo laço que já desenha estruturas/recursos. Clique nele (mesmo padrão de hit-test já usado pra unidade/estrutura/recurso) abre um modal novo, `app/components/NestRaidModal.vue` (reaproveitando `UModal` do Nuxt UI, como o resto do app já usa `USlideover`/`UTooltip`): 3 botões — Coletar ovos / Manter e saquear / Cancelar — chamando `wormNestsStore.raid(...)`. Se `state==="cooldown"`, o modal só informa "respawna no dia X" em vez das opções.
 
 ### Arquivos afetados
+
 - `app/stores/wormNests.ts` (novo).
 - `app/data/enemyDefinitions.json`: `nestLoot` no `leechingWorm`.
 - `app/components/World.vue`: render do ninho + hit-test de clique.
@@ -143,7 +184,7 @@ interface WormNest {
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
-2. **Recursos novos** (seção 2) — dado puro, zero risco, rápido.
+2. **Comida consumida por dia** (seção 2) — independente do verme; recursos novos ficaram para um batch posterior.
 3. **`hostileToAll`** (seção 3) — pequeno, testável isoladamente com qualquer inimigo existente antes do verme entrar em cena.
 4. **Identidade de região** (seção 4) — pré-requisito mecânico pro verme.
 5. **Verme: spawn/rota/comportamento** (seção 5).

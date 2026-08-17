@@ -50,6 +50,8 @@ function createEnemy(type: EnemyType, position: Position, behavior: "horde" | "a
     speed: def.speed,
     swimSpeed: def.swimSpeed,
     aquatic: (def as { aquatic?: boolean }).aquatic ?? false,
+    attack: def.attack,
+    defense: def.defense,
     combatRange: def.combatRange,
     actionIds: [...def.actionIds],
     actionCooldowns: {},

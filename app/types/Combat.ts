@@ -12,6 +12,10 @@ export interface Combatant {
   position: Position;
   health: number;
   maxHealth: number;
+  /** Flat power stat; each action adds `scaling`% of it to its dice roll. */
+  attack: number;
+  /** Armor points, converted to a damage reduction with diminishing returns — see damageMultiplierFor. */
+  defense: number;
   combatRange: number;
   actionIds: string[];
   actionCooldowns: Record<string, number>;
@@ -34,7 +38,10 @@ export interface ActionDefinition {
   id: string;
   label: string;
   kind: "melee" | "ranged";
-  damage: [number, number];
+  /** Base damage as a pure dice roll, no flat bonus — "2d10", "4d6". */
+  damage: string;
+  /** Percent of the attacker's attack stat added to the dice roll. 100 = the full stat. */
+  scaling: number;
   critChance: number;
   critMultiplier: number;
   cooldownMs: number;

@@ -22,6 +22,8 @@ interface Target {
   id: string;
   isStructure: boolean;
   position: { x: number; y: number };
+  /** Structures have no armor stat, so they always take full damage. */
+  defense: number;
 }
 
 export const useCombatStore = defineStore("combat", () => {
@@ -33,14 +35,14 @@ export const useCombatStore = defineStore("combat", () => {
   function resolveTarget(id: string, isStructure: boolean): Target | null {
     if (isStructure) {
       const s = useStructureStore().getStructure(id);
-      return s ? { id, isStructure: true, position: s.position } : null;
+      return s ? { id, isStructure: true, position: s.position, defense: 0 } : null;
     }
 
     const u = useUnitStore().getUnit(id);
-    if (u) return { id, isStructure: false, position: u.position };
+    if (u) return { id, isStructure: false, position: u.position, defense: u.defense };
 
     const e = useEnemyStore().getEnemy(id);
-    return e ? { id, isStructure: false, position: e.position } : null;
+    return e ? { id, isStructure: false, position: e.position, defense: e.defense } : null;
   }
 
   function isAliveById(id: string, isStructure: boolean): boolean {
@@ -57,21 +59,25 @@ export const useCombatStore = defineStore("combat", () => {
     while (unit.combatQueue && unit.combatQueue.length > 0) {
       const nextId = unit.combatQueue.shift();
       const enemy = nextId ? enemyStore.getEnemy(nextId) : undefined;
-      if (enemy && enemy.health > 0) return { id: enemy.id, isStructure: false, position: enemy.position };
+      if (enemy && enemy.health > 0) {
+        return { id: enemy.id, isStructure: false, position: enemy.position, defense: enemy.defense };
+      }
     }
 
     const nearest = enemyGrid.findNearest(unit.position.x, unit.position.y, unit.combatRange);
-    return nearest ? { id: nearest.id, isStructure: false, position: nearest.position } : null;
+    return nearest ? { id: nearest.id, isStructure: false, position: nearest.position, defense: nearest.defense } : null;
   }
 
   function findEnemyTarget(enemy: Enemy): Target | null {
     const nearestUnit = unitGrid.findNearest(enemy.position.x, enemy.position.y, enemy.combatRange);
-    if (nearestUnit) return { id: nearestUnit.id, isStructure: false, position: nearestUnit.position };
+    if (nearestUnit) {
+      return { id: nearestUnit.id, isStructure: false, position: nearestUnit.position, defense: nearestUnit.defense };
+    }
 
     if (enemy.behavior === "horde") {
       const fort = useStructureStore().getStructure("fort-1");
       if (fort && distance(enemy.position, fort.position) <= enemy.combatRange) {
-        return { id: fort.id, isStructure: true, position: fort.position };
+        return { id: fort.id, isStructure: true, position: fort.position, defense: 0 };
       }
     }
 
@@ -145,7 +151,7 @@ export const useCombatStore = defineStore("combat", () => {
 
   function applyImpact(action: ActionDefinition, attacker: Combatant, target: Target) {
     const effectsStore = useEffectsStore();
-    const { amount, crit } = rollDamage(action);
+    const { amount, crit } = rollDamage(action, attacker.attack, target.defense);
 
     applyDamage(target, amount);
     retaliate(target, attacker.id);
@@ -154,7 +160,7 @@ export const useCombatStore = defineStore("combat", () => {
       for (const enemy of enemyGrid.queryRadius(target.position.x, target.position.y, action.aoeRadius)) {
         if (enemy.id === target.id) continue;
 
-        const splash = rollDamage(action);
+        const splash = rollDamage(action, attacker.attack, enemy.defense);
         enemy.health = Math.max(0, enemy.health - splash.amount);
         if (enemy.actionIds.length > 0) {
           enemy.combatTargetId = attacker.id;
