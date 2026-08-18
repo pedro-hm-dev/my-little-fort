@@ -111,6 +111,26 @@ export function pointInPolygon(
  * Check if a point is inside any lake (water)
  * Optimized with early radius check before polygon test
  */
+export interface Bounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export function outlineBounds(outline: Array<{ x: number; y: number }>): Bounds {
+  const bounds: Bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+
+  for (const point of outline) {
+    if (point.x < bounds.minX) bounds.minX = point.x;
+    if (point.x > bounds.maxX) bounds.maxX = point.x;
+    if (point.y < bounds.minY) bounds.minY = point.y;
+    if (point.y > bounds.maxY) bounds.maxY = point.y;
+  }
+
+  return bounds;
+}
+
 export function isInWater(
   x: number,
   y: number,
@@ -118,10 +138,17 @@ export function isInWater(
     center: { x: number; y: number };
     radius: number;
     outline?: Array<{ x: number; y: number }>;
+    bounds?: Bounds;
   }>,
 ): boolean {
   for (const lake of lakes) {
-    // Fast radius check first (eliminates most cases)
+    // Bounding box first when the body carries one. A river's `radius` spans its whole length, so the
+    // circle test below barely rejects anything for them — the box does.
+    if (lake.bounds) {
+      if (x < lake.bounds.minX || x > lake.bounds.maxX || y < lake.bounds.minY || y > lake.bounds.maxY) continue;
+    }
+
+    // Fast radius check (eliminates most cases)
     const dx = x - lake.center.x;
     const dy = y - lake.center.y;
     const distSq = dx * dx + dy * dy;

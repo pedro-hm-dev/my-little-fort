@@ -9,6 +9,8 @@ export interface Lake {
   outline: Position[]; // smoothed perimeter points
   /** Centerline samples — only present for rivers, used for cheap distance-to-water-body checks. */
   path?: Position[];
+  /** Outline bounding box, precomputed at generation so isInWater can reject without touching vertices. */
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number };
   kind?: "lake" | "river";
 }
 
