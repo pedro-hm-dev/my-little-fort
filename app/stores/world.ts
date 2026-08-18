@@ -1,7 +1,7 @@
 import { ref, computed, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import { useCameraStore } from "@/stores/camera";
-import { BiomeType, type Lake, type Position } from "@/types/Terrain";
+import { BiomeType, type BiomeRegion, type Lake, type Position } from "@/types/Terrain";
 import { distance, outlineBounds, pointInPolygon } from "@/utils/geometry";
 import { fbm, noise2D, setGlobalSeed, getSeededRandom } from "@/utils/noise";
 
@@ -86,13 +86,6 @@ const BIOME_COLORS: Record<BiomeType, string> = {
   [BiomeType.Mountain]: "#26262a",
 };
 
-interface BiomeRegion {
-  biome: BiomeType;
-  center: Position;
-  radius: number;
-  outline: Position[];
-}
-
 function regionContains(x: number, y: number, region: BiomeRegion): boolean {
   const dx = x - region.center.x;
   const dy = y - region.center.y;
@@ -157,6 +150,32 @@ export const useWorldStore = defineStore("world", () => {
     return biomeAtRegions(x, y, biomeRegions.value);
   }
 
+  /**
+   * How many regions of each biome this generated world ended up with. Every BiomeType is present,
+   * zero included, so callers can tell "no desert on this map" apart from "field missing".
+   * Grassland is the default fill rather than a placed blob, so it is always 0.
+   */
+  const regionCountByBiome = computed<Record<BiomeType, number>>(() => {
+    const counts = Object.fromEntries(Object.values(BiomeType).map((biome) => [biome, 0])) as Record<BiomeType, number>;
+
+    for (const region of biomeRegions.value) counts[region.biome]++;
+
+    return counts;
+  });
+
+  function regionsOfBiome(biome: BiomeType): BiomeRegion[] {
+    return biomeRegions.value.filter((region) => region.biome === biome);
+  }
+
+  /** The region containing a point, or null on Grassland. Complements biomeAt when the caller needs the region itself. */
+  function regionAt(x: number, y: number): BiomeRegion | null {
+    for (const region of biomeRegions.value) {
+      if (regionContains(x, y, region)) return region;
+    }
+
+    return null;
+  }
+
   function initialize(seed?: number) {
     const camera = useCameraStore();
     const width = camera.mapWidth;
@@ -182,6 +201,10 @@ export const useWorldStore = defineStore("world", () => {
     rivers,
     allLakes,
     allWaterBodies,
+    biomeRegions,
+    regionCountByBiome,
+    regionsOfBiome,
+    regionAt,
     biomeTexture,
     worldSeed,
     biomeAt,
@@ -540,7 +563,9 @@ function tryPlaceBiomeRegion(
     if (!overlaps) {
       const sizeCategory = radius > 900 ? "large" : radius > 500 ? "medium" : "small";
       const outline = generateOrganicOutline(cx, cy, radius, sizeCategory, rng);
-      return { biome: spec.biome, center: { x: cx, y: cy }, radius, outline };
+      const ordinal = existing.filter((region) => region.biome === spec.biome).length;
+
+      return { id: `${spec.biome}-${ordinal}`, biome: spec.biome, center: { x: cx, y: cy }, radius, outline };
     }
   }
 

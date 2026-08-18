@@ -18,6 +18,7 @@
       <div class="text-green-800">ZOOM <span class="text-green-400">{{ camera.zoom.toFixed(2) }}x</span></div>
       <div class="text-green-800">PAN  <span class="text-green-400">{{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</span></div>
       <div class="text-green-800">SEED <span class="text-green-400">{{ worldStore.worldSeed }}</span></div>
+      <div class="text-green-800">BIOMAS <span class="text-green-400">{{ biomeRegionSummary }}</span></div>
 
       <button
         @click="centerOnFort"
@@ -123,6 +124,7 @@ import { useGameStore } from "@/stores/game";
 import { useSelectionStore } from "@/stores/selection";
 import { UnitType, type Unit } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
+import { BiomeType } from "@/types/Terrain";
 import { circleIntersectsRect } from "@/utils/geometry";
 import { boundsOnScreen, circleOnScreen, outlineBounds, viewportBounds, type Bounds } from "@/utils/viewport";
 import unitDefs from "@/data/unitDefinitions.json";
@@ -176,6 +178,20 @@ const activeCommandHint = computed(() => {
   if (selectionStore.activeCommand === "gather") return "Clique em um recurso ou arraste uma área para coletar em fila";
   return "";
 });
+
+const BIOME_LABELS: Partial<Record<BiomeType, string>> = {
+  [BiomeType.Forest]: "FLO",
+  [BiomeType.Desert]: "DES",
+  [BiomeType.Tundra]: "TUN",
+  [BiomeType.Mountain]: "MON",
+};
+
+/** Region count per biome for the debug panel — Grassland is the default fill, never a placed region. */
+const biomeRegionSummary = computed(() =>
+  Object.entries(BIOME_LABELS)
+    .map(([biome, label]) => `${label} ${worldStore.regionCountByBiome[biome as BiomeType]}`)
+    .join(" · "),
+);
 
 watch(
   () => unitStore.pendingReproduction,

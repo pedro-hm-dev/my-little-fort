@@ -14,6 +14,19 @@ export interface Lake {
   kind?: "lake" | "river";
 }
 
+/**
+ * One organic blob of a non-Grassland biome on the map. There can be more than one per biome, so the
+ * `id` is what lets systems track "this region" — a worm per region, an enemy cap per region.
+ */
+export interface BiomeRegion {
+  /** Stable within a generated world: `${biome}-${n}`, n counting from 0 per biome. */
+  id: string;
+  biome: BiomeType;
+  center: Position;
+  radius: number;
+  outline: Position[];
+}
+
 export enum BiomeType {
   Grassland = "grassland",
   Forest = "forest",
