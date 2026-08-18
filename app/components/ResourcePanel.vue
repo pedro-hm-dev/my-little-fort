@@ -122,6 +122,10 @@ const resourceColors: Record<ResourceType, string> = {
   [ResourceType.Cactus]: "#65a30d",
   [ResourceType.Meat]: "#ef4444",
   [ResourceType.Leather]: "#92400e",
+  [ResourceType.Algae]: "#0d9488",
+  [ResourceType.WhiteMeat]: "#fda4af",
+  [ResourceType.Fat]: "#fef3c7",
+  [ResourceType.LegendaryFang]: "#c084fc",
   [ResourceType.Carcass]: "#7f1d1d",
 };
 
@@ -135,6 +139,10 @@ const resourceNames: Record<ResourceType, string> = {
   [ResourceType.Cactus]: "Cacto",
   [ResourceType.Meat]: "Carne",
   [ResourceType.Leather]: "Couro",
+  [ResourceType.Algae]: "Alga",
+  [ResourceType.WhiteMeat]: "Carne Branca",
+  [ResourceType.Fat]: "Gordura",
+  [ResourceType.LegendaryFang]: "Presa Lendária",
   [ResourceType.Carcass]: "Carcaça",
 };
 

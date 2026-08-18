@@ -136,6 +136,23 @@
     "weight": 1
   },
 
+  "swallow": {
+    "id": "swallow",
+    "label": "Engolir",
+    "kind": "melee",
+    "damage": "4d10",
+    "scaling": 90,
+    "critChance": 0.1,
+    "critMultiplier": 2,
+    "cooldownMs": 2600,
+    "animationMs": 900,
+    "impactMs": 500,
+    "minRange": 0,
+    "maxRange": 70,
+    "vfx": "bite",
+    "weight": 1
+  },
+
   "maul": {
     "id": "maul",
     "label": "Dilacerar",

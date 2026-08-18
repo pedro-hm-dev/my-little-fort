@@ -8,6 +8,8 @@ import { useResourceStore } from "./resources";
 import { useCameraStore } from "./camera";
 import { useUnitStore } from "./units";
 import { isInWater, approachPoint, distance } from "@/utils/geometry";
+import { generatePatrolRoute } from "@/utils/patrol";
+import type { BiomeType } from "@/types/Terrain";
 
 type EnemyDefKey = keyof typeof enemyDefs;
 /** The bits of an enemy def spawnAmbient cares about beyond the strictly-typed JSON fields. */
@@ -35,9 +37,17 @@ const TARGET_FRAME_TIME = 1000 / 60;
 const MAX_CHASE_DISTANCE = 400;
 const MAX_CHASE_TIME_MS = 10_000;
 
+// Territorial semi-boss tuning (PLANS.md section 5)
+const PATROL_WAYPOINT_RANGE: [number, number] = [5, 7];
+/** Close enough to a waypoint to start walking to the next one. */
+const WAYPOINT_ARRIVAL_RADIUS = 30;
+const NEST_ARRIVAL_RADIUS = 25;
+/** Share of max health regained per game second while resting at the nest. */
+const NEST_HEAL_RATIO_PER_SECOND = 0.02;
+
 let enemyIdCounter = 100;
 
-function createEnemy(type: EnemyType, position: Position, behavior: "horde" | "ambient"): Enemy {
+function createEnemy(type: EnemyType, position: Position, behavior: Enemy["behavior"]): Enemy {
   const def = enemyDefs[type as EnemyDefKey];
   return {
     id: `${type}-${++enemyIdCounter}`,
@@ -163,6 +173,72 @@ export const useEnemyStore = defineStore("enemies", () => {
     return null;
   }
 
+  /**
+   * Where a territorial enemy walks when it is not fighting. Wounded and unengaged, it retreats to
+   * the nest and heals there; otherwise it walks its patrol loop. Being enraged suppresses resting,
+   * so a raided nest can't send the worm home mid-rampage.
+   */
+  function territorialDestination(enemy: Enemy, gameDeltaMs: number): Position | undefined {
+    const wounded = enemy.health < enemy.maxHealth;
+
+    if (!enemy.enraged && (enemy.resting || wounded)) {
+      enemy.resting = true;
+
+      if (!enemy.nestPosition) return undefined;
+      if (distance(enemy.position, enemy.nestPosition) > NEST_ARRIVAL_RADIUS) return { ...enemy.nestPosition };
+
+      const healed = (enemy.maxHealth * NEST_HEAL_RATIO_PER_SECOND * gameDeltaMs) / 1000;
+      enemy.health = Math.min(enemy.maxHealth, enemy.health + healed);
+
+      if (enemy.health >= enemy.maxHealth) enemy.resting = false;
+
+      return undefined;
+    }
+
+    const route = enemy.patrolRoute;
+    if (!route || route.length === 0) return undefined;
+
+    const index = (enemy.patrolIndex ?? 0) % route.length;
+    const waypoint = route[index]!;
+
+    if (distance(enemy.position, waypoint) < WAYPOINT_ARRIVAL_RADIUS) {
+      enemy.patrolIndex = (index + 1) % route.length;
+    }
+
+    return { ...waypoint };
+  }
+
+  /**
+   * Territorial enemies are placed deterministically — one per matching biome region, on world init —
+   * instead of going through spawnAmbient's probabilistic roll. Two deserts means two worms.
+   */
+  function spawnTerritorial() {
+    const worldStore = useWorldStore();
+
+    for (const type of Object.values(EnemyType)) {
+      const def = enemyDefs[type as EnemyDefKey] as unknown as { behavior?: string; habitat?: EnemyHabitat };
+      if (def.behavior !== "territorial" || def.habitat?.kind !== "biome") continue;
+
+      for (const region of worldStore.regionsOfBiome(def.habitat.biome as BiomeType)) {
+        if (allEnemies.value.some((enemy) => enemy.regionId === region.id && enemy.type === type)) continue;
+
+        const [minWaypoints, maxWaypoints] = PATROL_WAYPOINT_RANGE;
+        const waypointCount = minWaypoints + Math.floor(Math.random() * (maxWaypoints - minWaypoints + 1));
+        const route = generatePatrolRoute(region.outline, waypointCount);
+
+        if (!route) continue;
+
+        const enemy = createEnemy(type, route.center, "territorial");
+        enemy.regionId = region.id;
+        enemy.patrolRoute = route.waypoints;
+        enemy.patrolIndex = 0;
+        enemy.nestPosition = { ...route.center };
+
+        addEnemy(enemy);
+      }
+    }
+  }
+
   /** Rolls for opportunistic ambient spawns — each type's habitat/pack behavior comes from its definition. */
   function spawnAmbient() {
     const worldStore = useWorldStore();
@@ -227,7 +303,9 @@ export const useEnemyStore = defineStore("enemies", () => {
           enemy.chaseElapsedMs = outOfRange ? (enemy.chaseElapsedMs ?? 0) + gameDeltaMs : 0;
 
           const distFromAnchor = enemy.combatAnchor ? distance(enemy.position, enemy.combatAnchor) : 0;
-          const gaveUp = distFromAnchor > MAX_CHASE_DISTANCE || enemy.chaseElapsedMs > MAX_CHASE_TIME_MS;
+          // An enraged territorial enemy has no leash — units have to fight or outrun it.
+          const gaveUp =
+            !enemy.enraged && (distFromAnchor > MAX_CHASE_DISTANCE || enemy.chaseElapsedMs > MAX_CHASE_TIME_MS);
 
           if (gaveUp) {
             enemy.combatTargetId = undefined;
@@ -244,6 +322,8 @@ export const useEnemyStore = defineStore("enemies", () => {
       } else if (!enemy.combatTargetId) {
         if (enemy.behavior === "horde") {
           dest = enemy.targetPosition ?? fort?.position;
+        } else if (enemy.behavior === "territorial") {
+          dest = territorialDestination(enemy, gameDeltaMs);
         } else if (enemy.homePosition) {
           if (!enemy.targetPosition) {
             const angle = Math.random() * Math.PI * 2;
@@ -280,6 +360,7 @@ export const useEnemyStore = defineStore("enemies", () => {
 
   function initialize() {
     enemies.value.clear();
+    spawnTerritorial();
   }
 
   return {
@@ -290,6 +371,7 @@ export const useEnemyStore = defineStore("enemies", () => {
     getEnemy,
     spawnHorde,
     spawnAmbient,
+    spawnTerritorial,
     updateEnemyAI,
     initialize,
   };
