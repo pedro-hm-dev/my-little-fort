@@ -109,7 +109,7 @@
 
 <script setup lang="ts">
 import { LazyResourcePanel } from "#components";
-import { drawEntityIcon, drawIconSync, preloadAllIcons, STATUS_ICONS } from "@/utils/iconRenderer";
+import { drawEntityIconSync, drawIconSync, preloadAllIcons, STATUS_ICONS } from "@/utils/iconRenderer";
 import { useCameraStore } from "@/stores/camera";
 import { useTimeStore, type TimeSpeed } from "@/stores/time";
 import { useInventoryStore } from "@/stores/inventory";
@@ -124,6 +124,7 @@ import { useSelectionStore } from "@/stores/selection";
 import { UnitType, type Unit } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
 import { circleIntersectsRect } from "@/utils/geometry";
+import { boundsOnScreen, circleOnScreen, outlineBounds, viewportBounds, type Bounds } from "@/utils/viewport";
 import unitDefs from "@/data/unitDefinitions.json";
 
 type UnitDefKey = keyof typeof unitDefs;
@@ -293,6 +294,54 @@ const gameLoop = (timestamp: number) => {
   animationFrameId = requestAnimationFrame(gameLoop);
 };
 
+/**
+ * Lake gradients and water outline bounds, built once per world instead of per frame.
+ * createRadialGradient was the single most repeated allocation in the old drawTerrain.
+ */
+let waterCache: {
+  lakes: unknown;
+  rivers: unknown;
+  lakeGradients: CanvasGradient[];
+  lakeBounds: Bounds[];
+  riverBounds: Bounds[];
+} | null = null;
+
+const waterFor = (drawContext: CanvasRenderingContext2D) => {
+  const lakes = worldStore.allLakes;
+  const rivers = worldStore.rivers;
+
+  if (waterCache && waterCache.lakes === lakes && waterCache.rivers === rivers) return waterCache;
+
+  waterCache = {
+    lakes,
+    rivers,
+    lakeGradients: lakes.map((lake) => {
+      const gradient = drawContext.createRadialGradient(
+        lake.center.x,
+        lake.center.y,
+        0,
+        lake.center.x,
+        lake.center.y,
+        lake.radius,
+      );
+      gradient.addColorStop(0, "rgba(30, 100, 180, 0.5)");
+      gradient.addColorStop(0.7, "rgba(50, 140, 220, 0.4)");
+      gradient.addColorStop(1, "rgba(70, 180, 255, 0.3)");
+
+      return gradient;
+    }),
+    lakeBounds: lakes.map((lake) => ({
+      minX: lake.center.x - lake.radius,
+      minY: lake.center.y - lake.radius,
+      maxX: lake.center.x + lake.radius,
+      maxY: lake.center.y + lake.radius,
+    })),
+    riverBounds: rivers.map((river) => outlineBounds(river.outline)),
+  };
+
+  return waterCache;
+};
+
 const render = () => {
   if (!ctx || !canvasRef.value) return;
 
@@ -308,21 +357,36 @@ const render = () => {
   ctx.scale(camera.zoom, camera.zoom);
   ctx.translate(camera.panX, camera.panY);
 
-  drawGrid();
-  drawMapBounds();
-  drawTerrain();
+  // Read each store array once per frame — they are computeds that rebuild on every position mutation,
+  // and the loops below walk some of them twice (icons, then halos).
+  const view = viewportBounds(w, h, camera.zoom, camera.panX, camera.panY);
+  const resources = resourceStore.allResources;
+  const structures = structureStore.allStructures;
+  const enemies = enemyStore.allEnemies;
+  const selectableUnits = unitStore.allUnits;
+  const drawableUnits = unitStore.mapUnits;
 
-  for (const resource of resourceStore.allResources) {
-    void drawEntityIcon(ctx, resource, resource.position, { size: resource.iconSize });
+  drawGrid(view);
+  drawMapBounds();
+  drawTerrain(view);
+
+  for (const resource of resources) {
+    if (!circleOnScreen(resource.position.x, resource.position.y, resource.iconSize / 2, view)) continue;
+
+    drawEntityIconSync(ctx, resource, resource.position, { size: resource.iconSize });
   }
 
-  for (const structure of structureStore.allStructures) {
-    void drawEntityIcon(ctx, structure, structure.position, { size: structure.iconSize });
+  for (const structure of structures) {
+    if (!circleOnScreen(structure.position.x, structure.position.y, structure.iconSize / 2, view)) continue;
+
+    drawEntityIconSync(ctx, structure, structure.position, { size: structure.iconSize });
     drawHealthBar(structure.position, structure.iconSize, structure.health, structure.maxHealth);
   }
 
-  for (const enemy of enemyStore.allEnemies) {
-    void drawEntityIcon(ctx, enemy, enemy.position, { size: enemy.iconSize });
+  for (const enemy of enemies) {
+    if (!circleOnScreen(enemy.position.x, enemy.position.y, enemy.iconSize / 2, view)) continue;
+
+    drawEntityIconSync(ctx, enemy, enemy.position, { size: enemy.iconSize });
     drawHealthBar(enemy.position, enemy.iconSize, enemy.health, enemy.maxHealth);
   }
 
@@ -331,7 +395,7 @@ const render = () => {
   const queuedResourceIds = new Set<string>();
   const queuedStructureIds = new Set<string>();
 
-  for (const unit of unitStore.allUnits) {
+  for (const unit of selectableUnits) {
     if (!selectionStore.isSelected(unit.id)) continue;
 
     // Sheltered units don't render on the map (no icon to halo), but their fort still deserves one.
@@ -350,21 +414,29 @@ const render = () => {
   }
 
   // Enemies/resources/structures queued by a selected unit's attack, gather or shelter order.
-  for (const enemy of enemyStore.allEnemies) {
-    if (queuedEnemyIds.has(enemy.id)) drawHalo(enemy.position, enemy.iconSize, "#ef4444");
+  if (queuedEnemyIds.size > 0) {
+    for (const enemy of enemies) {
+      if (queuedEnemyIds.has(enemy.id)) drawHalo(enemy.position, enemy.iconSize, "#ef4444");
+    }
   }
 
-  for (const resource of resourceStore.allResources) {
-    if (queuedResourceIds.has(resource.id)) drawHalo(resource.position, resource.iconSize, "#eab308");
+  if (queuedResourceIds.size > 0) {
+    for (const resource of resources) {
+      if (queuedResourceIds.has(resource.id)) drawHalo(resource.position, resource.iconSize, "#eab308");
+    }
   }
 
-  for (const structure of structureStore.allStructures) {
-    if (queuedStructureIds.has(structure.id)) drawHalo(structure.position, structure.iconSize, "#38bdf8");
+  if (queuedStructureIds.size > 0) {
+    for (const structure of structures) {
+      if (queuedStructureIds.has(structure.id)) drawHalo(structure.position, structure.iconSize, "#38bdf8");
+    }
   }
 
   // Only render map units (not those inside forts)
-  for (const unit of unitStore.mapUnits) {
-    void drawEntityIcon(ctx, unit, unit.position, { size: unit.iconSize });
+  for (const unit of drawableUnits) {
+    if (!circleOnScreen(unit.position.x, unit.position.y, unit.iconSize / 2, view)) continue;
+
+    drawEntityIconSync(ctx, unit, unit.position, { size: unit.iconSize });
     drawHealthBar(unit.position, unit.iconSize, unit.health, unit.maxHealth);
     if (unit.starving) drawStarvingMarker(unit);
   }
@@ -438,32 +510,27 @@ const drawStarvingMarker = (unit: Unit) => {
   drawIconSync(ctx, STATUS_ICONS.starving, { x: unit.position.x + corner, y: unit.position.y - corner }, size);
 };
 
-const drawGrid = () => {
+const drawGrid = (view: Bounds) => {
   if (!ctx) return;
+
   ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
   ctx.lineWidth = 0.5 / camera.zoom;
-  const gridSize = 100;
-  const w = canvasRef.value?.width ?? 0;
-  const h = canvasRef.value?.height ?? 0;
-  const halfW = w / (2 * camera.zoom);
-  const halfH = h / (2 * camera.zoom);
-  const camX = -camera.panX;
-  const camY = -camera.panY;
-  const startX = Math.floor((camX - halfW) / gridSize) * gridSize;
-  const startY = Math.floor((camY - halfH) / gridSize) * gridSize;
-  const endX = camX + halfW;
-  const endY = camY + halfH;
 
-  for (let x = startX; x <= endX; x += gridSize) {
+  const gridSize = 100;
+  const startX = Math.floor(view.minX / gridSize) * gridSize;
+  const startY = Math.floor(view.minY / gridSize) * gridSize;
+
+  for (let x = startX; x <= view.maxX; x += gridSize) {
     ctx.beginPath();
-    ctx.moveTo(x, camY - halfH - gridSize);
-    ctx.lineTo(x, camY + halfH + gridSize);
+    ctx.moveTo(x, view.minY - gridSize);
+    ctx.lineTo(x, view.maxY + gridSize);
     ctx.stroke();
   }
-  for (let y = startY; y <= endY; y += gridSize) {
+
+  for (let y = startY; y <= view.maxY; y += gridSize) {
     ctx.beginPath();
-    ctx.moveTo(camX - halfW - gridSize, y);
-    ctx.lineTo(camX + halfW + gridSize, y);
+    ctx.moveTo(view.minX - gridSize, y);
+    ctx.lineTo(view.maxX + gridSize, y);
     ctx.stroke();
   }
 };
@@ -502,24 +569,27 @@ const drawWaterPolygon = (outline: { x: number; y: number }[], fillStyle: string
   ctx.stroke();
 };
 
-const drawTerrain = () => {
+const drawTerrain = (view: Bounds) => {
   if (!ctx) return;
 
   if (worldStore.biomeTexture) {
     ctx.drawImage(worldStore.biomeTexture, 0, 0, camera.mapWidth, camera.mapHeight);
   }
 
-  for (const lake of worldStore.allLakes) {
-    const gradient = ctx.createRadialGradient(lake.center.x, lake.center.y, 0, lake.center.x, lake.center.y, lake.radius);
-    gradient.addColorStop(0, "rgba(30, 100, 180, 0.5)");
-    gradient.addColorStop(0.7, "rgba(50, 140, 220, 0.4)");
-    gradient.addColorStop(1, "rgba(70, 180, 255, 0.3)");
+  const water = waterFor(ctx);
+  const lakes = worldStore.allLakes;
+  const rivers = worldStore.rivers;
 
-    drawWaterPolygon(lake.outline, gradient);
+  for (let index = 0; index < lakes.length; index++) {
+    if (!boundsOnScreen(water.lakeBounds[index]!, view)) continue;
+
+    drawWaterPolygon(lakes[index]!.outline, water.lakeGradients[index]!);
   }
 
-  for (const river of worldStore.rivers) {
-    drawWaterPolygon(river.outline, "rgba(50, 130, 200, 0.4)");
+  for (let index = 0; index < rivers.length; index++) {
+    if (!boundsOnScreen(water.riverBounds[index]!, view)) continue;
+
+    drawWaterPolygon(rivers[index]!.outline, "rgba(50, 130, 200, 0.4)");
   }
 };
 

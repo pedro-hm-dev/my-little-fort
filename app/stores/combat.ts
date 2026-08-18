@@ -307,27 +307,33 @@ export const useCombatStore = defineStore("combat", () => {
     const unitStore = useUnitStore();
     const enemyStore = useEnemyStore();
 
-    unitGrid.rebuild(unitStore.mapUnits.filter((u) => u.health > 0));
-    enemyGrid.rebuild(enemyStore.allEnemies.filter((e) => e.health > 0));
+    // Snapshot once per frame: these are computeds that rebuild whenever a position mutates, and this
+    // function walks each of them three times. Iterating the snapshot also makes the removal passes
+    // below safe, since they mutate the underlying maps.
+    const mapUnits = unitStore.mapUnits;
+    const enemies = enemyStore.allEnemies;
 
-    for (const unit of unitStore.mapUnits) {
+    unitGrid.rebuild(mapUnits.filter((unit) => unit.health > 0));
+    enemyGrid.rebuild(enemies.filter((enemy) => enemy.health > 0));
+
+    for (const unit of mapUnits) {
       if (unit.actionIds.length === 0) continue;
       processCombatant(unit, gameDeltaMs, () => findUnitTarget(unit));
     }
 
-    for (const enemy of enemyStore.allEnemies) {
+    for (const enemy of enemies) {
       processCombatant(enemy, gameDeltaMs, () => findEnemyTarget(enemy));
     }
 
     const selectionStore = useSelectionStore();
-    for (const unit of unitStore.mapUnits) {
+    for (const unit of mapUnits) {
       if (unit.health <= 0) {
         selectionStore.deselectUnit(unit.id);
         unitStore.removeUnit(unit.id);
       }
     }
 
-    for (const enemy of enemyStore.allEnemies) {
+    for (const enemy of enemies) {
       if (enemy.health <= 0) {
         dropCarcass(enemy);
         enemyStore.removeEnemy(enemy.id);
