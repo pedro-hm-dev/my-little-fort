@@ -86,11 +86,9 @@ O verme está fora do jogo por enquanto — ver "Verme desativado" abaixo.
 - `app/stores/units.ts` (`spawnUnit`), `app/stores/enemies.ts` (`createEnemy`): copiar do def pro runtime, mesmo padrão de `combatRange`/`actionIds` já existente.
 - `app/utils/combatEngine.ts`, `app/stores/combat.ts`: fórmula + resolução de defesa do alvo.
 
-### Verme desativado
+### Verme ativado
 
-A entrada `leechingWorm` saiu de `enemyDefinitions.json` e está guardada em **`app/data/enemyDefinitions.pending.json`** — nenhum código importa esse arquivo, então ele não afeta o jogo. Motivo: `behavior: "territorial"`, a ação `swallow` e os recursos de loot (`fat`/`meatWhite`/`legendaryFang`) ainda não existem em código.
-
-Ao implementar as seções 5 e 6, mover a entrada de volta pro `enemyDefinitions.json` **depois** de: `swallow` em `actionDefinitions.json` (com `damage` em dado + `scaling`), os recursos novos em `ResourceType` (seção 2) e o branch `territorial` no `updateEnemyAI`. O arquivo pendente já vem com `attack`/`defense`, `hostileToAll` e `habitat` de deserto preenchidos.
+O def do verme viveu um tempo em `app/data/enemyDefinitions.pending.json`, fora do jogo, porque `behavior: "territorial"`, a ação `swallow` e os recursos de loot não existiam em código. **Tudo isso entrou na seção 5**, e o arquivo pendente foi removido — o verme está no `enemyDefinitions.json` sob a chave `sandWorm`.
 
 ---
 
@@ -219,44 +217,89 @@ Isto **endureceu a economia de comida**: antes, matar um lobo entregava carne di
 
 ---
 
-## 4. Regiões de bioma: identidade estável e contagem por bioma
+## 4. Regiões de bioma: identidade estável e contagem por bioma — IMPLEMENTADO
 
-Hoje `biomeRegions` é um array interno de `app/stores/world.ts`, nunca exposto pela store, e sem id. Para "um verme por região" (seção 5) e para o cap por região (seção 8), preciso de:
+`BiomeRegion` era uma interface **privada** do `app/stores/world.ts`, e o array nunca era exposto. Agora:
 
-- **`id: string` em `BiomeRegion`** — ex. `${biome}-${index}` na geração.
-- **`biomeRegions` exposto** no retorno da store, do jeito que `lakes`/`rivers` já são.
-- **Contagem de regiões por bioma**, salva e consultável: quantos desertos, quantas florestas, quantas tundras o mapa gerado tem. Um computed `regionCountByBiome` (`Record<BiomeType, number>`) mais um `regionsOfBiome(biome)` que devolve as regiões daquele tipo.
+- **`BiomeRegion` virou tipo público** em `app/types/Terrain.ts`, ao lado de `Lake` e `BiomeType`, com um campo **`id`** novo.
+- **`id` no formato `${biome}-${n}`**, com `n` contando de 0 por bioma (`desert-0`, `desert-1`, `forest-0`). O ordinal vem de **quantas regiões daquele bioma já foram colocadas**, não do índice do loop — `tryPlaceBiomeRegion` pode falhar em achar espaço e devolver `null`, então o índice do loop deixaria buracos na numeração.
+- **`biomeRegions` exposto** no retorno da store, como `lakes`/`rivers` já eram.
 
-A contagem por bioma é o que torna o cap da seção 8 legível: com `biomeCap: 3` e 2 desertos, o teto do mapa para aquele bicho é `3 × regionCountByBiome.desert = 6`, e isso passa a ser um número que dá para inspecionar em vez de emergir escondido do loop de spawn. Serve também para o painel de debug do canto (que hoje mostra zoom/pan/seed) e para sanidade de geração — um mapa que sorteou zero desertos não deveria spawnar bicho de deserto nenhum, e hoje isso é silencioso.
+### Contagem e consulta
 
-Essa é a única mudança em `world.ts`: o resto do sistema de verme vive em `enemies.ts` + uma store nova.
+- **`regionCountByBiome`** (computed, `Record<BiomeType, number>`): inicializa **todo** `BiomeType` em 0 antes de contar, então `regionCountByBiome.desert === 0` distingue "este mapa não sorteou deserto" de "campo ausente" — que era exatamente o caso silencioso. Grassland é o preenchimento default, nunca uma região colocada, então dá sempre 0.
+- **`regionsOfBiome(biome)`**: as regiões daquele tipo.
+- **`regionAt(x, y)`**: a região que contém o ponto, ou `null` em Grassland. Não estava no plano, mas as seções 5 e 8 precisam da *região* e não só do bioma — sem isso cada consumidor reimplementaria o `regionContains`, que é privado.
 
----
+Com isso o cap da seção 8 fica um número inspecionável: `biomeCap × regionCountByBiome[biome]`.
 
-## 5. Verme de areia: patrulha, ninho, ninho único por região
+**Não adicionei `bounds` à `BiomeRegion`** (como fiz para `Lake`). O `regionContains` já faz descarte por raio antes do polígono, e regiões são blobs aproximadamente circulares — ao contrário de rios, onde o raio cobria todo o comprimento e não rejeitava nada. Sem medição que mostre custo, seria otimização prematura.
 
-### Spawn (uma vez por região do bioma, não pelo rolamento ambient)
+### Painel de debug
 
-Diferente de lobo/urso/tigre (que usam o rolamento probabilístico `spawnAmbient`), o verme é `behavior: "territorial"` — isso já significa "semi-boss com ninho", sem precisar de uma flag extra. Na inicialização (`enemies.ts`, chamado depois que `world.ts` gerou as `biomeRegions`): para cada def com `behavior === "territorial"`, para cada `BiomeRegion` cujo `.biome` bate com o `habitat.biome` do def (verme usa `habitat: {kind:"biome", biome:"desert"}`, reaproveitando o mesmo tipo `EnemyHabitat` do refactor anterior), gera exatamente um verme + um ninho.
-
-### Rota de patrulha
-
-Dentro do polígono da região (`region.outline`, já tenho `pointInPolygon` em `utils/geometry.ts`): amostragem por rejeição — sorteia pontos dentro da bounding box da região, mantém os que caem dentro do polígono, até ter uns 5-7 waypoints. Ordena esses pontos por ângulo em torno do centróide da região (truque padrão pra fechar um laço sem se autocruzar). O **ninho** fica no centróide desses waypoints ("no meio da rota").
-
-### Comportamento (`app/stores/enemies.ts`, `updateEnemyAI`, novo branch `behavior === "territorial"`)
-
-Estados (novos campos runtime em `Enemy`, `app/types/Enemy.ts`): `patrolRoute?: Position[]`, `patrolIndex?: number`, `nestPosition?: Position`, `resting?: boolean`, `enraged?: boolean`.
-
-- **Patrulhando** (padrão): anda de waypoint em waypoint em loop. Como `hostileToAll: true`, o auto-aggro por proximidade do combat.ts já cuida de brigar com qualquer coisa (jogador ou outro inimigo) que chegue perto — não precisa de lógica de ataque nova aqui, só o alcance/`actionIds` de sempre.
-- **Ferido e fora de combate**: quando `!combatTargetId && health < maxHealth`, em vez de continuar a rota, vira `resting: true` e anda até `nestPosition`. Lá, regenera (ex: 2% da vida máxima por segundo) até full ou até ser interrompido por combate de novo; ao curar, `resting: false` e retoma a rota de onde parou.
-- **Enfurecido** (raid do ninho com o verme vivo — ver seção 6): `enraged: true` força o alvo pro jogador mais próximo (ou o forte, se não achar unidade) e ignora `MAX_CHASE_DISTANCE`/`MAX_CHASE_TIME_MS` (o leash de desistência que já existe) enquanto durar — as unidades vão realmente precisar lutar ou fugir, não só esperar ele desistir.
+O painel do canto (que mostrava ZOOM/PAN/SEED) ganhou uma linha `BIOMAS` com a contagem por bioma (`FLO 1 · DES 2 · TUN 1 · MON 1`), para dar visibilidade imediata do que o mapa gerou na hora de balancear spawn.
 
 ### Arquivos afetados
 
-- `app/types/Enemy.ts`: `behavior` ganha `"territorial"`; campos de patrulha/ninho/enraged acima; `hostileToAll`.
-- `app/stores/world.ts`: id + export de `biomeRegions`.
-- `app/stores/enemies.ts`: geração de rota, spawn único por região, branch de movimento territorial.
-- `app/stores/combat.ts`: busca no `enemyGrid` quando `hostileToAll`.
+- `app/types/Terrain.ts`: `BiomeRegion` pública com `id`.
+- `app/stores/world.ts`: geração do `id`, `biomeRegions` exposto, `regionCountByBiome`, `regionsOfBiome`, `regionAt`.
+- `app/components/World.vue`: linha `BIOMAS` no painel de debug.
+
+---
+
+## 5. Verme de areia: patrulha e comportamento territorial — IMPLEMENTADO
+
+O ninho como **entidade saqueável** é a seção 6; aqui ele existe só como ponto de descanso do verme.
+
+### Pré-requisitos que faltavam
+
+- **`ResourceType.Fat` e `ResourceType.LegendaryFang`** (o Pedro já tinha adicionado `Algae` e `WhiteMeat`), com ícones `fat` e `bestial-fangs`. `Fat` entrou em `FOOD_RESOURCE_TYPES`; `LegendaryFang` não — é troféu.
+- **Ação `swallow`** em `actionDefinitions.json`: melee, `4d10` com scaling 90%, cooldown 2600ms, animação 900ms. Com `attack: 35` dá ~53 de dano médio, ~46 contra um soldado — dois a três golpes, o que é o peso esperado de um semi-boss.
+- **`EnemyType.SandWorm`** e `behavior: "territorial"` no tipo `Enemy`.
+- O loot do def dizia `meatWhite`, mas o enum é `whiteMeat` — **corrigido**, senão o loot cairia como tipo inválido.
+- `ResourcePanel.vue` ganhou as quatro entradas que faltavam nos `Record<ResourceType, string>` (`algae`, `whiteMeat`, `fat`, `legendaryFang`). Isso **destravou o typecheck**, que estava vermelho desde o commit `cf9928b`.
+
+### Bug encontrado: a chave do def divergia do `type`
+
+O def do verme tinha chave `leechingWorm` e `type: "sandWorm"`. **Todo** o código indexa os defs pela chave (`createEnemy`, `ambientCapFor`, `spawnAmbient`, `dropCarcass` fazem `enemyDefs[type]`), então o verme dava `undefined` e o spawn quebrava com `Cannot read properties of undefined`.
+
+Os outros doze defs seguem chave === type. Alinhei a **chave** para `sandWorm`, preservando o `type` que o plano e o código usam (`EnemyType.SandWorm`). O nome "leeching worm" sobrevive no `iconName: "leeching-worm"`. Se a intenção era chave-como-variante e type-como-espécie (dois vermes diferentes com `type: "sandWorm"`), então o lookup por type é ambíguo por construção e o identificador de runtime teria que passar a ser a chave — refactor de `EnemyType` inteiro, que não fiz.
+
+### Rota de patrulha: `app/utils/patrol.ts` (novo)
+
+`generatePatrolRoute(outline, waypointCount, random?)`:
+
+1. **Amostragem por rejeição** na bounding box do outline (via `outlineBounds`), mantendo só os pontos que passam no `pointInPolygon`, até 400 tentativas.
+2. **Ordena por ângulo** (`atan2`) em torno do centróide dos pontos amostrados. É isso que impede o laço de se autocruzar: percorrer vértices em ordem angular ao redor de um ponto interior sempre traça um polígono simples.
+3. Devolve `{ waypoints, center }`, com `center` sendo o centróide do laço — onde o ninho fica.
+
+Recebe a função de random por parâmetro para ser determinístico em teste.
+
+### Spawn: determinístico, um por região
+
+`spawnTerritorial()` em `enemies.ts`, chamado do `initialize()` — que já roda **depois** do `worldStore.initialize()` nos dois caminhos (boot e regenerate), então as regiões existem. Para cada def com `behavior === "territorial"` e `habitat.kind === "biome"`, percorre `worldStore.regionsOfBiome(...)` e coloca **um** verme por região, guardando o `regionId`. Nada de rolagem probabilística: dois desertos, dois vermes.
+
+É **idempotente** — pula regiões que já têm um verme daquele tipo, então chamar de novo não duplica.
+
+### Comportamento (`updateEnemyAI`, branch `territorial`)
+
+`territorialDestination(enemy, gameDeltaMs)`:
+
+- **Patrulhando** (padrão): anda ao waypoint atual e avança o `patrolIndex` ao chegar a menos de 30 unidades, em laço. O ataque a quem se aproxima já vem do `hostileToAll` (seção 3) mais o auto-aggro do combat store — nenhuma lógica de ataque nova aqui.
+- **Ferido e fora de combate**: marca `resting`, caminha até o `nestPosition` e regenera **2% da vida máxima por segundo de jogo** ali. Ao completar a vida, `resting` desliga e a patrulha **retoma do waypoint onde parou** (o `patrolIndex` é preservado).
+- **Enfurecido**: `enraged` **suprime o descanso** — senão um ninho saqueado mandaria o verme para casa no meio da fúria. E o leash de desistência (`MAX_CHASE_DISTANCE`/`MAX_CHASE_TIME_MS`) passa a ser ignorado, então as unidades precisam lutar ou fugir de verdade.
+
+Quem liga o `enraged` é o saque do ninho, na seção 6.
+
+### Arquivos afetados
+
+- `app/types/Resource.ts`: `Fat`, `LegendaryFang`, ícones, `Fat` em `FOOD_RESOURCE_TYPES`.
+- `app/components/ResourcePanel.vue`: as quatro entradas faltantes.
+- `app/data/actionDefinitions.json`: `swallow`.
+- `app/data/enemyDefinitions.json`: def do verme (chave `sandWorm`), vindo do arquivo pendente, que foi **removido**.
+- `app/types/Enemy.ts`: `SandWorm`, `"territorial"`, e os campos `regionId`/`patrolRoute`/`patrolIndex`/`nestPosition`/`resting`/`enraged`.
+- `app/utils/patrol.ts` (novo): geração da rota.
+- `app/stores/enemies.ts`: `spawnTerritorial`, `territorialDestination`, leash respeitando `enraged`.
 
 ---
 
@@ -512,17 +555,105 @@ while (s.enemies.allEnemies.length < 100) s.enemies.spawnHorde(20);
 
 **O render (itens A–C) não foi medido.** `requestAnimationFrame` não roda em aba de background, e a medição foi feita com a aba sem foco — o que aliás significa que os updates também não rodavam sozinhos, por isso deu para cronometrá-los limpo. Medir render exige a aba em primeiro plano.
 
+## 10. Alcance derivado das ações — PLANEJADO (fazer antes da seção 11)
+
+`combatRange` vive na **entidade** e responde por duas coisas: o raio de **aquisição de alvo** (`findEnemyTarget` faz `unitGrid.findNearest(x, y, enemy.combatRange)`) e a **aproximação** ao perseguir (fecha até `combatRange * 0.9`). Já `minRange`/`maxRange` vivem na **ação**, e o `pickAction` filtra por eles.
+
+A intenção do desenho é certa — uma entidade pode ter melee e ranged juntos, e o `pickAction` escolhe pela distância. O defeito é que o `combatRange` da entidade **precisa ser no mínimo o maior `maxRange` das ações dela**, senão o alcance extra nunca é usado. Ninguém garante isso, e já divergiu em seis defs:
+
+| def | engaja a | alcança | efeito |
+| --- | -------- | ------- | ------ |
+| dustDevil | 50 | 55 | o raio à distância viraria corpo a corpo |
+| bear | 45 | 55 | `slash` nunca usado no limite |
+| tiger | 43 | 55 | idem |
+| hunter | 200 | 260 | perde 60 de alcance do `arrowShot` |
+| parasaurolophus | 60 | 40 | **engaja fora do alcance e fica batendo no vazio** |
+| toadTeeth | 40 | 35 | idem |
+
+Os dois últimos são o caso ruim: a entidade persegue até 60, para, nenhuma ação alcança, e ela fica parada até o leash expirar.
+
+### Correção
+
+**Derivar `combatRange` das ações** em `createEnemy`/`spawnUnit`: `combatRange = max(maxRange)` das `actionIds`, com `0` quando não há ação (worker/miner). O campo sai do JSON, ou fica como **override opcional** para o caso legítimo de "engaja mais perto do que alcança" (um bicho medroso, ou um arqueiro que prefere manter distância curta).
+
+Ganho: as seis inconsistências desaparecem por construção em vez de serem caçadas uma a uma, e um bicho com melee + ranged passa a abrir de longe e trocar para o melee quando o alvo cola.
+
+Custo: muda o balanceamento de bear, tiger, hunter, parasaurolophus e toadTeeth, que passam a engajar em distância diferente. É mudança de comportamento, não só de código.
+
+---
+
+## 11. Ataques novos: charge, poisonSting, evilMagicRay — PLANEJADO
+
+Três ações que o Pedro já referenciou em `enemyDefinitions.json` (mamute, escorpião, diabo de poeira) e que **ainda não existem** em `actionDefinitions.json`. Hoje o `pickAction` filtra def inexistente, então esses bichos simplesmente não atacam — falha silenciosa, sem erro.
+
+Cada uma exige uma mecânica que o motor de combate não tem. Ordem sugerida: **evilMagicRay → poisonSting → charge**, do mais simples ao mais invasivo.
+
+### evilMagicRay — só um vfx novo
+
+Ataque à distância, raio roxo maligno. É o mais barato: `ActionVfx` ganha `"magicRay"`, e `CombatEffects.vue` ganha o estilo. O `EffectSpec.kind` já aceita `ActionVfx`, então nada mais muda no fluxo.
+
+O vfx segue o padrão do `fx-arrow`: um elemento com `transform-origin: left center`, rotacionado por `--angle` e esticado até `--dist`. Diferenças: mais largo, gradiente roxo (`#a855f7` → `#7e22ce`), `box-shadow` para o glow, e a animação cresce em largura em vez de transladar — um raio aparece inteiro, não viaja como uma flecha.
+
+Números propostos: ranged, `2d6` com scaling 60%, crit 12%, cooldown 1800ms, animação 700ms, impacto 400ms, `maxRange` 200. Depende da seção 10 para o dustDevil engajar a 200 em vez de 50.
+
+### poisonSting — dano sobre o tempo
+
+Dano direto **bem baixo**, e o veneno é o dano real.
+
+Campos novos:
+
+```ts
+ActionDefinition.poison?: { durationMs: number; damagePerSecond: number };
+Combatant.poison?: { remainingMs: number; damagePerSecond: number };
+```
+
+`applyImpact` aplica o veneno no alvo quando a ação tem `poison`. O tick precisa de **um laço próprio em `updateCombat`, não dentro de `processCombatant`** — essa armadilha é fácil de cair: `processCombatant` só é chamado para unidades com `actionIds.length > 0`, então worker e miner envenenados nunca tickariam.
+
+Marcador de status: reusar `STATUS_ICONS` + `drawIconSync` (o mecanismo criado para a fome na seção 2), com o ícone `poison` em verde.
+
+Números propostos: melee, `1d3` com scaling 20%, cooldown 1500ms, `poison: { durationMs: 6000, damagePerSecond: 3 }`. Com o `attack: 0` do escorpião, o golpe dá ~2 e o veneno 18 ao longo de 6 segundos — o veneno é o ataque.
+
+**Falta também `ResourceType.Poison`**: o `lootTable` do escorpião já dropa `poison`, que não existe no enum. Hoje isso entra no inventário como chave inválida, sem nome nem cor no painel.
+
+### charge — investida com dano em área e empurrão
+
+A mais invasiva: exige **movimento durante a ação**, que o motor hoje proíbe (`updateEnemyAI` faz `if (enemy.actionLock) continue`, e unidades ficam paradas mid-swing).
+
+```ts
+ActionDefinition.charge?: { radius: number; pushDistance: number };
+ActionLock.origin?: Position;  // de onde a investida partiu
+```
+
+Fluxo:
+
+1. **Avanço**: em `processCombatant`, dentro do branch do `actionLock` e antes do impacto, mover o atacante em direção ao alvo cobrindo `gap * (gameDeltaMs / msRestantesAtéOImpacto)`. Converge no `impactMs` mesmo com o alvo se movendo, e para a `combatRange * 0.6` para não sobrepor. O movimento fica **no `combat.ts`**, não no `updateEnemyAI` — assim serve unidade e inimigo igual, e não briga com o `continue` do actionLock.
+2. **Impacto em cápsula**: `applyImpact` passa a receber o `origin` do lock. Com `charge`, em vez de acertar só o alvo, varre `unitGrid` e `enemyGrid` medindo `distanceToSegment(entidade, origin, posiçãoAtual)` — **`distanceToSegment` já existe** em `utils/geometry.ts`. Quem estiver dentro do `radius` é atingido.
+3. **Dano em quem é inimigo, empurrão em todos.** Foi o pedido literal ("dano em area e empurrando tdm no caminho") e evita que um rebanho de mamutes (`packSizeRange [1,3]`) se mate por fogo amigo. O empurrão desloca a entidade perpendicularmente ao eixo da investida por `pushDistance`.
+
+Números propostos: melee, `minRange` 80 (precisa de espaço para investir), `maxRange` 260, `3d8` com scaling 80%, cooldown 4200ms, animação 1100ms, impacto 850ms, `charge: { radius: 70, pushDistance: 90 }`.
+
+Pontos a decidir na implementação: o empurrão respeita limites do mapa e água, ou deixa o movimento normal corrigir depois? E um alvo empurrado deve ter a própria ação interrompida?
+
+### Ainda pendente nos inimigos novos
+
+`mammoth`, `parasaurolophus`, `velociraptor`, `scorpion` e `toadTeeth` **não estão no `EnemyType`**, e o `spawnAmbient` itera esse enum — então nenhum deles spawna hoje. Adicionar ao enum é o que os põe no jogo.
+
+---
+
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
 2. **Comida consumida por dia** (seção 2) — independente do verme; recursos novos ficaram para um batch posterior.
 3. **`hostileToAll`** (seção 3) — pequeno, testável isoladamente com qualquer inimigo existente antes do verme entrar em cena.
    - **3b. Carcaças** — loot vira recurso no chão; pré-requisito para o verme fazer sentido como loot farm.
-4. **Identidade de região** (seção 4) — pré-requisito mecânico pro verme.
-5. **Verme: spawn/rota/comportamento** (seção 5).
+4. **Identidade de região** (seção 4) — FEITO. Pré-requisito do verme (seção 5) e do cap por região (seção 8).
+5. **Verme: spawn/rota/comportamento** (seção 5) — FEITO.
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
 7. **Unidades passivas** (seção 7) — independente do verme, pode entrar a qualquer momento.
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
+10. **Alcance derivado** (seção 10) — pré-requisito da 11, e conserta seis defs inconsistentes.
+11. **Ataques novos** (seção 11) — charge, poisonSting, evilMagicRay; três mecânicas novas de motor.
+
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 
 ## Verificação
