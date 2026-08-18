@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="selectedUnits.length > 0"
-    class="absolute bottom-4 left-4 z-50 flex gap-1.5 p-2 border border-green-500/25 bg-black/75 backdrop-blur-sm"
+    class="absolute bottom-4 left-4 z-50 flex gap-1.5 p-2 border border-green-500/25 bg-black/90"
   >
     <UTooltip v-for="action in ACTIONS" :key="action.id" :ui="{ content: 'h-auto items-start py-2' }">
       <template #content>

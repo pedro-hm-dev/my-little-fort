@@ -378,59 +378,139 @@ Um bicho raro fica `spawnRate: 0.03`; um bicho comum, `spawnRate: 0.5`. Não há
 
 ---
 
-## 9. Performance — PLANEJADO (prioridade alta, o jogo está pesado)
+## 9. Performance — A–D1 + correções de `isInWater` IMPLEMENTADOS
 
-O loop roda tudo a 60fps sobre stores profundamente reativas, e o render não faz culling. Abaixo os candidatos que encontrei lendo o código, ordenados por **ganho ÷ esforço**. A regra é medir antes de mexer.
+O loop rodava tudo a 60fps sobre stores profundamente reativas, sem culling no render.
 
-### Medir primeiro
+### A. `drawEntityIcon` async no render loop — FEITO
 
-Antes de otimizar nada: **Performance profile do Chrome DevTools** com o jogo em x10 (que é onde dói mais), gravando ~10 segundos. O que interessa no flame chart é a divisão entre `render()`, os quatro `update*` e o tempo gasto dentro do runtime do Vue (`reactiveEffect`, `triggerRefValue`). Isso decide se o gargalo é desenho ou reatividade, e evita otimizar o lado errado. Vale também rodar com poucos e com muitos inimigos, para separar custo fixo de custo por entidade.
+`render()` chamava `void drawEntityIcon(...)` para **cada** recurso, estrutura, inimigo e unidade, e a função é `async` — cada chamada alocava uma Promise e um microtask mesmo com o ícone já em cache. Com ~35 recursos mais dezenas de entidades a 60fps, eram milhares de Promises por segundo, pressão de GC e ordem de desenho não determinística.
 
-### A. `drawEntityIcon` async no render loop (ganho alto, esforço mínimo)
+`drawEntityIconSync` já existia em `iconRenderer.ts` e não era usado em lugar nenhum. Agora é, nos quatro laços. O `drawEntityIcon` async não é mais importado pelo `World.vue`.
 
-`render()` em `World.vue` chama `void drawEntityIcon(...)` para **cada** recurso, estrutura, inimigo e unidade — e a função é `async`. Cada chamada aloca uma Promise e um microtask, mesmo quando o ícone já está no cache (o caminho de cache retorna antes do `await`, mas a função ainda é assíncrona). Com ~35 recursos + dezenas de entidades × 60fps, são milhares de Promises por segundo, criando pressão de GC e ordem de desenho não determinística.
+### B. Culling de viewport — FEITO
 
-**`drawEntityIconSync` já existe** em `iconRenderer.ts` e não é usado em lugar nenhum. É trocar a chamada. Deve ser a primeira coisa a fazer.
+Nenhum laço testava visibilidade: com zoom-in, a maioria dos `drawImage` era descartada pelo canvas depois de já ter custado. A matemática saiu para **`app/utils/viewport.ts`** novo, puro e testável:
 
-### B. Culling de viewport (ganho alto, esforço baixo)
+- `viewportBounds(canvasWidth, canvasHeight, zoom, panX, panY)` — o retângulo de mundo visível.
+- `circleOnScreen(x, y, radius, view)` — usa o raio do ícone, então um ícone metade fora da tela ainda desenha (nada de pop-in na borda).
+- `boundsOnScreen(bounds, view)` e `outlineBounds(outline)` — para os polígonos de água.
 
-Nenhum dos laços de entidade em `render()` testa se a entidade está visível — com zoom-in, a esmagadora maioria dos `drawImage` é descartada pelo canvas depois de já ter custado. `circleIntersectsRect` já existe em `utils/geometry.ts` (é usado na seleção por área) e a `drawGrid` já calcula a caixa visível a partir de `camera.panX/panY/zoom` — extrair esse cálculo para uma função e filtrar cada laço por ela.
+O `drawGrid` passou a receber esse mesmo `view` em vez de recalcular a conta por conta própria, então as duas não podem divergir.
 
-Bônus: o `resourceStore` já tem um `SpatialGrid`, então `getResourcesInRadius` pode substituir o laço sobre `allResources` direto.
+### C. Água re-renderizada por frame — FEITO (por caminho diferente do planejado)
 
-### C. Água re-renderizada por frame (ganho médio, esforço baixo)
+`drawTerrain` chamava `createRadialGradient` **por lago, por frame**, e desenhava todos os lagos e rios sem culling.
 
-`drawTerrain` chama `createRadialGradient` **por lago, por frame**, e desenha todos os lagos e rios como polígonos, sem culling. A textura de bioma já é pré-renderizada num canvas offscreen (`buildBiomeTexture`) — a água pode entrar na mesma estratégia: desenhar lagos e rios uma vez num canvas offscreen na geração do mundo, e no frame virar um único `drawImage`.
+O plano original era assar a água numa textura offscreen como o `buildBiomeTexture` faz. **Não foi por aí:** o `drawWaterPolygon` usa `3 / camera.zoom` e `8 / camera.zoom` nas espessuras de borda, de propósito, para a borda ter espessura constante na tela. Assar isso numa textura de mundo mudaria o visual conforme o zoom.
 
-### D. Reatividade profunda sobre posições (ganho potencialmente o maior, esforço alto)
+Em vez disso: um `waterCache` guarda os gradientes dos lagos e os bounds de lagos e rios, reconstruído só quando os arrays da world store trocam de referência (ou seja, na geração do mundo). O desenho segue por frame, com culling, e o visual fica idêntico — mesmo ganho principal, zero risco visual.
 
-`units`, `enemies` e `resources` são `ref<Map<string, T>>`, o que faz o Vue tornar **profundamente reativo** cada objeto dentro do Map. Os loops de update mutam `position.x`/`position.y` de cada entidade a cada frame, e cada uma dessas mutações passa pelo sistema reativo. Além disso os computeds `allUnits`/`allEnemies`/`allResources` fazem `Array.from(map.values())` e são invalidados por essas mutações, então **recriam o array a cada frame** — e são acessados várias vezes por frame, em `updateCombat`, `updateEnemyAI`, `render` e no `foodStore`.
+### D1. Arrays de store lidos uma vez por frame — FEITO
 
-Caminhos possíveis, do menos ao mais invasivo:
+`allUnits`/`mapUnits`/`allEnemies`/`allResources` são computeds que fazem `Array.from(map.values())` e são invalidados por qualquer mutação de posição — ou seja, **reconstruídos a cada frame**. E eram lidos várias vezes por frame: `render()` percorria recursos, estruturas e inimigos duas vezes cada (ícones, depois halos), e `updateCombat` lia `mapUnits` e `allEnemies` três vezes cada.
 
-1. **Cachear os arrays por frame**: pegar `allEnemies` uma vez no início do frame e passar adiante, em vez de reacessar o computed em cada função.
-2. **`shallowRef` no Map** e disparar a reatividade manualmente só quando a UI precisa (contagem de unidades, inventário) — as posições não precisam ser reativas, quem lê elas é o canvas, que redesenha de qualquer jeito.
-3. **Separar posição do objeto reativo**: manter `position` em arrays planos (`Float32Array`) indexados, fora do alcance do Vue.
+Agora ambos tiram um snapshot no início e trabalham sobre ele. Efeito colateral bom: os laços de remoção do `updateCombat` mutam os Maps enquanto iteram, o que agora acontece sobre um snapshot em vez do computed vivo. Os laços de halo também ganharam um guard de `size > 0` para não percorrer nada quando não há seleção.
 
-O (1) é barato e vale fazer junto de A e B. O (2) é o que provavelmente traz o salto grande. O (3) só se o profile mostrar que ainda vale.
+### E o que o profile mostrou: o gargalo era outro
 
-### E. Alocação por frame nos updates (ganho médio, esforço médio)
+Medido no jogo rodando (dev server, stores acessadas pelo hook do Vue devtools, `performance.now()` em volta de cada sistema). **Meu palpite estava errado** — eu tinha apostado em render e na reatividade das entidades. O gargalo real era `isInWater`.
 
-`updateUnitPositions` faz `units.value.set(unit.id, { ...unit, ... })` em vários caminhos — um objeto novo por unidade, por frame, no caminho de coleta. Como o objeto já está no Map, mutar o campo direto (como o código já faz para `position`) evita a alocação e a invalidação do computed. Mesma coisa nos vários `updateUnit`/`set` de `attackTarget`, `gatherResources` e afins, que rodam por comando e não por frame — esses são menos urgentes.
+`updateEnemyAI` chamava `isInWater` por inimigo por frame, contra 11 corpos d'água com outlines de 58 a 96 vértices. E `lakes`/`rivers` eram `ref<Lake[]>`, ou seja **profundamente reativos**: cada acesso a `outline[i].x` dentro do point-in-polygon passava por um proxy do Vue. Medido: a mesma função sobre a mesma água em objetos planos custava **11x menos** (1,29ms vs 14,23ms para 100 inimigos). Isso era ~74% do `updateEnemyAI`.
 
-### F. SpatialGrid reconstruído duas vezes por frame (ganho baixo, esforço baixo)
+Somado a isso, o descarte inicial usava `radius`, e um rio tem `radius` do tamanho do seu comprimento (medidos: 1364 e 1810 num mapa de 5000) — então o círculo praticamente não rejeitava nada e quase todo inimigo caía no teste de polígono.
 
-`updateCombat` faz `unitGrid.rebuild(...)` e `enemyGrid.rebuild(...)` a cada frame, o que limpa e reinsere tudo, alocando arrays de célula. A classe já tem `update(entity)`, que só re-hasheia quem trocou de célula. Só vale depois de medir — com poucas entidades o `rebuild` é barato, e ele tem a vantagem de ser à prova de dessincronização.
+**Duas correções:**
 
-### G. Efeitos e o DOM
+1. **`lakes`/`rivers` viraram `shallowRef`** em `world.ts`. Os arrays só são substituídos inteiros na geração, então shallow é também o correto semanticamente. `updateEnemyAI` com 100 inimigos: **19,18ms → 8,51ms**, medido no mesmo mundo.
+2. **`bounds` pré-computado no `Lake`** (`outlineBounds` na geração), e `isInWater` rejeita pela caixa antes de tocar em vértice. `updateEnemyAI`: **8,51ms → 1,42ms**. Validado com 29.434 pontos comparando com a versão antiga: **zero divergências**.
 
-`CombatEffects.vue` renderiza os efeitos como elementos do DOM com transições CSS, não no canvas. Em combate grande (horda + números de dano + AOE) isso vira muitos nós criados e destruídos por segundo. Se o profile apontar tempo em layout/recalc de estilo, mover os efeitos para o canvas resolve de uma vez — mas é reescrita, então só com evidência.
+`Bounds`/`outlineBounds` passaram a viver em `utils/geometry.ts` (é geometria pura); `utils/viewport.ts` reexporta.
 
-### Ordem sugerida
+### Ganho medido no frame de simulação
 
-**A → B → C → D(1)** de uma vez: são todos localizados, de baixo risco, e juntos devem dar a maior parte do ganho. Medir de novo. Só então decidir entre **D(2)**, **E** e **G** com base no profile, em vez de por palpite.
+Soma de `updateUnitPositions` + `updateFortUnits` + `updateEnemyAI` + `updateCombat` + `decayCarcasses`, em ms por frame:
 
----
+| Inimigos | Antes | Depois | % do budget de 16,67ms (antes → depois) |
+| -------- | ----- | ------ | --------------------------------------- |
+| 0        | 0,27  | 0,28   | 2% → 2%                                 |
+| 40       | 6,48  | 1,55   | 39% → 9%                                |
+| 60       | 11,35 | 2,11   | 68% → 13%                               |
+| 100      | 18,36 | 4,17   | **110% → 25%**                          |
+| 200      | 38,92 | 6,82   | **233% → 41%**                          |
+| 400      | —     | 14,52  | — → 87%                                 |
+
+Com 100 inimigos a simulação **estourava sozinha** o frame de 60fps, antes de qualquer render. Ressalva honesta: o salto do passo 1 foi medido no mesmo mundo; o do passo 2 em mundo regenerado (10 corpos d'água em vez de 11), então há algum ruído de geometria — mas a ordem de magnitude é inequívoca.
+
+### Grade de ocupação de água — protótipo validado, não implementado
+
+Ideia do Pedro: como rios e lagos nunca mudam, cachear pesado. Prototipei no browser uma **grade de 3 estados** (seco / água / borda), célula de 32px: célula de borda cai no teste exato, as outras respondem por indexação de array.
+
+Resultado: 24KB de memória, 47ms para construir uma vez, `isInWater` **6,8x mais rápido** (0,421ms → 0,062ms para 400 posições), e **zero divergências em 148.225 pontos** contra o exato.
+
+**Não implementei, de propósito:** depois das duas correções acima, `isInWater` custa 0,42ms de um frame de 22,76ms com 400 inimigos — **1,8%**. A grade economizaria ~1,6% do frame. A ideia é correta e o protótipo está validado; vale guardar para quando a água voltar a aparecer no profile (por exemplo se as unidades passarem a consultá-la com muito mais frequência), não agora.
+
+### O travamento no movimento de câmera: era o compositor, não o JS
+
+Queixa do Pedro: travava ao mover a câmera. O profile de JS não explicava — com 0 inimigos, `render()` emitia comandos em ~1,4ms e o pan custava 0,002ms. Medido com a aba **em primeiro plano** (obrigatório: em background o Chrome não rasteriza, então o custo de pintura é invisível):
+
+| Cenário | fps | ms/frame | frames > 20ms |
+| ------- | --- | -------- | ------------- |
+| baseline | 36,6 | 27,3 | 57 de 100 |
+| metade da resolução | **60,0** | 16,7 | **0** |
+| um quarto da resolução | 60,0 | 16,7 | 0 |
+
+O JS de render ficou em ~1ms nos três. **Cortar pixels resolvia; cortar trabalho de JS não.** Ou seja, o jogo era limitado por rasterização/composição, não por CPU — com ~90% do frame gasto fora do JavaScript.
+
+A GPU está ativa (`ANGLE (Intel, Mesa Intel HD Graphics 620)`), então não era fallback de software. Duas causas, ambas na composição:
+
+1. **O canvas era criado com canal alfa.** `getContext("2d")` traz `alpha: true` por padrão, o que faz o compositor blendar a camada inteira do canvas (1,9M px) contra o fundo da página a cada frame. Como o `render()` sempre pinta um `fillRect` de fundo opaco, o alfa nunca era usado para nada. Passou a ser **`getContext("2d", { alpha: false })`**.
+2. **`backdrop-filter: blur(8px)` em cinco HUDs** sobre o canvas. `backdrop-filter` re-borra a região a cada frame em que o conteúdo atrás muda — e o canvas muda todo frame. Medido isoladamente: remover os blurs levou de 41,1 para 48,3 fps e cortou os frames longos pela metade. Trocados por `bg-black/90` opaco (visual quase idêntico, o fundo já era escuro). O único que sobrou é o overlay de "O Forte Caiu", que é estático e some junto com o jogo.
+
+**Resultado no caso relatado: 36,6 fps → 60 fps travado, zero frames acima de 20ms.**
+
+Lição para a próxima vez: medir JS não é medir frame. Um profile de CPU limpo com FPS ruim é assinatura de fill-rate/compositing, e a checagem barata é reduzir `canvas.width/height` pela metade — se o FPS salta, o gargalo é pintura.
+
+### Onde o gargalo está agora
+
+Com câmera parada ou em movimento e poucos inimigos, o jogo trava em 60fps. Sob carga alta de inimigos ele ainda cai — e **não é JS de render** (medido em 1,75ms com 300 inimigos):
+
+| Inimigos | fps | ms/frame | frames > 20ms | JS de render |
+| -------- | --- | -------- | ------------- | ------------ |
+| 0        | 60,0 | 16,7 | 0 | 1,31ms |
+| 100      | 49,5 | 20,2 | 31 de 150 | 1,44ms |
+| 300      | 26,6 | 37,6 | 147 de 150 | 1,75ms |
+
+Sobra a simulação mais a rasterização dos ícones extras. Do lado da simulação, `updateCombat` domina:
+
+| Inimigos | `updateCombat` | `updateEnemyAI` | `updateUnitPositions` |
+| -------- | -------------- | --------------- | --------------------- |
+| 100      | 2,83ms         | 1,50ms          | 0,02ms                |
+| 400      | **14,57ms**    | 5,80ms          | 0,02ms                |
+
+Escala levemente superlinear (4x de inimigos → 5,1x de custo). Os suspeitos, na ordem:
+
+- **`rebuild` dos dois SpatialGrids por frame** (item F acima) — limpa e reinsere tudo, alocando arrays de célula. Agora vale medir, ao contrário do que eu disse antes.
+- **`processCombatant` por entidade** — `tickCooldowns` percorre `Object.keys(actionCooldowns)` por entidade por frame, e `findEnemyTarget` faz consulta ao grid por inimigo.
+- **Mutação das posições** (D2): medido em 1,64ms por frame para 400 inimigos. Real, mas não dominante — a reatividade de entidade custa bem menos que a da geometria do mundo custava.
+
+Itens **E** (alocação em `updateUnitPositions`) e **G** (efeitos no DOM) seguem sem evidência de que importam: `updateUnitPositions` mede 0,02ms.
+
+### Como reproduzir a medição
+
+Com o dev server no ar, no console da página:
+
+```js
+const hook = window.__VUE_DEVTOOLS_GLOBAL_HOOK__;
+const pinia = hook.apps.find((a) => a?.config?.globalProperties?.$pinia).config.globalProperties.$pinia;
+const s = {}; for (const [id, store] of pinia._s) s[id] = store;
+s.time.setSpeed(0);                                   // congela o loop para não competir
+s.enemies.initialize();
+while (s.enemies.allEnemies.length < 100) s.enemies.spawnHorde(20);
+// então cronometrar s.enemies.updateEnemyAI(16.67), s.combat.updateCombat(16.67), etc.
+```
+
+**O render (itens A–C) não foi medido.** `requestAnimationFrame` não roda em aba de background, e a medição foi feita com a aba sem foco — o que aliás significa que os updates também não rodavam sozinhos, por isso deu para cronometrá-los limpo. Medir render exige a aba em primeiro plano.
 
 ## Ordem recomendada
 
@@ -443,7 +523,7 @@ O (1) é barato e vale fazer junto de A e B. O (2) é o que provavelmente traz o
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
 7. **Unidades passivas** (seção 7) — independente do verme, pode entrar a qualquer momento.
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
-9. **Performance** (seção 9) — **fora da fila, prioridade alta**: o jogo já está pesado hoje, e cada sistema novo piora. Os itens A–C são baratos e podem entrar antes de qualquer feature.
+9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 
 ## Verificação
 

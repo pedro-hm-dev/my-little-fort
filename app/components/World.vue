@@ -14,7 +14,7 @@
 
     <ActionBar />
 
-    <div class="absolute top-4 left-4 bg-black/75 backdrop-blur-sm p-3 border border-green-500/25 text-xs font-mono text-green-500 space-y-1">
+    <div class="absolute top-4 left-4 bg-black/90 p-3 border border-green-500/25 text-xs font-mono text-green-500 space-y-1">
       <div class="text-green-800">ZOOM <span class="text-green-400">{{ camera.zoom.toFixed(2) }}x</span></div>
       <div class="text-green-800">PAN  <span class="text-green-400">{{ camera.panX.toFixed(0) }}, {{ camera.panY.toFixed(0) }}</span></div>
       <div class="text-green-800">SEED <span class="text-green-400">{{ worldStore.worldSeed }}</span></div>
@@ -43,7 +43,7 @@
     <div class="absolute top-4 right-4 z-50">
       <button
         @click.stop="toggleResourcePanel"
-        class="p-2 border border-green-500/30 bg-black/70 backdrop-blur-sm text-green-500 hover:text-green-200 hover:border-green-400/50 hover:bg-green-900/20 transition-all"
+        class="p-2 border border-green-500/30 bg-black/90 text-green-500 hover:text-green-200 hover:border-green-400/50 hover:bg-green-900/20 transition-all"
       >
         <UIcon name="i-game-icons-open-chest" class="size-5" />
       </button>
@@ -55,7 +55,7 @@
         v-if="unitStore.pendingReproduction"
         class="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none"
       >
-        <div class="flex items-center gap-3 px-5 py-3 border border-yellow-500/60 bg-black/90 font-mono text-sm backdrop-blur-sm">
+        <div class="flex items-center gap-3 px-5 py-3 border border-yellow-500/60 bg-black/90 font-mono text-sm">
           <UIcon name="i-lucide-crosshair" class="size-4 text-yellow-400 shrink-0" />
           <span class="text-yellow-300 uppercase tracking-widest">
             Selecione um {{ pendingUnitLabel }} no mapa
@@ -69,7 +69,7 @@
     <Transition name="hud">
       <div
         v-if="activeCommandHint"
-        class="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 border border-yellow-500/60 bg-black/90 font-mono text-xs backdrop-blur-sm pointer-events-none"
+        class="absolute bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2 border border-yellow-500/60 bg-black/90 font-mono text-xs pointer-events-none"
       >
         <UIcon name="i-lucide-crosshair" class="size-4 text-yellow-400 shrink-0" />
         <span class="text-yellow-300 uppercase tracking-widest">{{ activeCommandHint }}</span>
@@ -237,7 +237,9 @@ onMounted(async () => {
   const canvas = canvasRef.value;
   if (!canvas) return;
 
-  ctx = canvas.getContext("2d");
+  // alpha: false — o fundo é sempre pintado, então o canal alfa só custava blending na composição.
+  // Medido: o compositor deixou de ser o gargalo (36,6fps -> 60fps travado neste hardware).
+  ctx = canvas.getContext("2d", { alpha: false });
   if (!ctx) return;
 
   await preloadAllIcons();

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col items-center bg-black/60 backdrop-blur-sm border border-green-500/25 select-none overflow-hidden"
+    class="flex flex-col items-center bg-black/85 border border-green-500/25 select-none overflow-hidden"
   >
     <Transition name="clock-slide">
       <div v-if="expanded" class="flex flex-col items-center w-full">
