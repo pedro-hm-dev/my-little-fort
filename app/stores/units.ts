@@ -14,6 +14,9 @@ import { useSelectionStore } from "./selection";
 import { useEnemyStore } from "./enemies";
 import { useEffectsStore } from "./effects";
 import { isInWater, distance, approachPoint, evenlySpacedAngles } from "@/utils/geometry";
+import { combatRangeFor } from "@/utils/combatEngine";
+import actionDefs from "@/data/actionDefinitions.json";
+import type { ActionDefinition } from "@/types/Combat";
 
 const TARGET_FRAME_TIME = 1000 / 60;
 
@@ -24,6 +27,7 @@ const FULL_DAY_GAME_MS = 300_000;
 const GATHER_STANDOFF_RADIUS = 35;
 
 type UnitDefKey = keyof typeof unitDefs;
+const ACTION_DEFS = actionDefs as unknown as Record<string, ActionDefinition>;
 
 let unitIdCounter = 100;
 
@@ -48,8 +52,8 @@ function spawnUnit(type: UnitType, position: Position): Unit {
     reproductionTimeHours: def.reproductionTimeHours,
     attack: def.attack,
     defense: def.defense,
-    combatRange: (def as { combatRange?: number }).combatRange ?? 0,
     actionIds: (def as { actionIds?: string[] }).actionIds ?? [],
+    combatRange: combatRangeFor((def as { actionIds?: string[] }).actionIds ?? [], ACTION_DEFS),
     actionCooldowns: {},
   };
 }

@@ -39,6 +39,8 @@ export interface Unit {
   actionLock?: ActionLock;
   combatTargetId?: string;
   combatTargetIsStructure?: boolean;
+  /** Active damage-over-time. Ticked in its own pass, since unarmed units skip processCombatant. */
+  poison?: { remainingMs: number; damagePerSecond: number };
   /** Remaining enemy ids to engage in order, after combatTargetId, from an area-attack command. */
   combatQueue?: string[];
 }

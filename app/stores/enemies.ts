@@ -8,10 +8,14 @@ import { useResourceStore } from "./resources";
 import { useCameraStore } from "./camera";
 import { useUnitStore } from "./units";
 import { isInWater, approachPoint, distance } from "@/utils/geometry";
+import { combatRangeFor } from "@/utils/combatEngine";
+import actionDefs from "@/data/actionDefinitions.json";
+import type { ActionDefinition } from "@/types/Combat";
 import { generatePatrolRoute } from "@/utils/patrol";
 import type { BiomeType } from "@/types/Terrain";
 
 type EnemyDefKey = keyof typeof enemyDefs;
+const ACTION_DEFS = actionDefs as unknown as Record<string, ActionDefinition>;
 /** The bits of an enemy def spawnAmbient cares about beyond the strictly-typed JSON fields. */
 interface AmbientSpawnConfig {
   habitat?: EnemyHabitat;
@@ -63,7 +67,7 @@ function createEnemy(type: EnemyType, position: Position, behavior: Enemy["behav
     hostileToAll: (def as { hostileToAll?: boolean }).hostileToAll ?? false,
     attack: def.attack,
     defense: def.defense,
-    combatRange: def.combatRange,
+    combatRange: combatRangeFor(def.actionIds, ACTION_DEFS),
     actionIds: [...def.actionIds],
     actionCooldowns: {},
     behavior,

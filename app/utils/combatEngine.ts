@@ -40,6 +40,25 @@ export function pickAction(
   return usable[usable.length - 1]!;
 }
 
+/**
+ * Engagement range for a set of actions: the longest reach among them, 0 when unarmed.
+ *
+ * Derived rather than declared per entity, because the two have to agree — an entity that engages
+ * closer than its longest action can reach never gets to use that reach, and one that engages
+ * farther than any action reaches walks up, stops, and flails at nothing until the leash expires.
+ * Both bugs existed across six definitions before this.
+ */
+export function combatRangeFor(actionIds: string[], actionDefs: Record<string, ActionDefinition>): number {
+  let longest = 0;
+
+  for (const id of actionIds) {
+    const def = actionDefs[id];
+    if (def && def.maxRange > longest) longest = def.maxRange;
+  }
+
+  return longest;
+}
+
 /** Fraction of incoming damage that survives `defense` armor points. Never reaches 0. */
 export function damageMultiplierFor(defense: number): number {
   return DEFENSE_HALVING_POINT / (DEFENSE_HALVING_POINT + Math.max(0, defense));

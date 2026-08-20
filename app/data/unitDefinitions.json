@@ -37,7 +37,6 @@
     "reproductionTimeHours": 8,
     "attack": 10,
     "defense": 15,
-    "combatRange": 55,
     "actionIds": ["thrust", "slash"]
   },
 
@@ -59,7 +58,6 @@
     "reproductionTimeHours": 5,
     "attack": 15,
     "defense": 0,
-    "combatRange": 260,
     "actionIds": ["arrowShot", "bombArrowShot"]
   },
 
@@ -81,7 +79,6 @@
     "reproductionTimeHours": 3,
     "attack": 8,
     "defense": 5,
-    "combatRange": 200,
     "actionIds": ["arrowShot"]
   },
 

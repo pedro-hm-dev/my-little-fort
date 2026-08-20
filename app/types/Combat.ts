@@ -22,6 +22,8 @@ export interface Combatant {
   actionLock?: ActionLock;
   combatTargetId?: string;
   combatTargetIsStructure?: boolean;
+  /** Active damage-over-time. Ticked in its own pass, since unarmed units skip processCombatant. */
+  poison?: { remainingMs: number; damagePerSecond: number };
 }
 
 export interface ActionLock {
@@ -30,9 +32,11 @@ export interface ActionLock {
   targetIsStructure: boolean;
   elapsedMs: number;
   impactApplied: boolean;
+  /** Where the attacker stood when the action started — a charge sweeps the line back to here. */
+  origin?: Position;
 }
 
-export type ActionVfx = "thrust" | "slash" | "arrow" | "bombArrow" | "bite";
+export type ActionVfx = "thrust" | "slash" | "arrow" | "bombArrow" | "bite" | "magicRay";
 
 export interface ActionDefinition {
   id: string;
@@ -53,6 +57,13 @@ export interface ActionDefinition {
   vfx: ActionVfx;
   /** Area-of-effect radius, bombArrow only. */
   aoeRadius?: number;
+  /**
+   * Melee dash: the attacker closes on its target during the wind-up, then hits everything within
+   * `radius` of the line it travelled. Damage lands on hostiles only; the shove hits everyone.
+   */
+  charge?: { radius: number; pushDistance: number };
+  /** Leaves damage-over-time on whatever this action hits. */
+  poison?: { durationMs: number; damagePerSecond: number };
   /** Random-pick weight among off-cooldown, in-range actions. Default 1. */
   weight?: number;
 }

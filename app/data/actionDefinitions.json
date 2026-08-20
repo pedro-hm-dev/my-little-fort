@@ -136,6 +136,59 @@
     "weight": 1
   },
 
+  "charge": {
+    "id": "charge",
+    "label": "Investida",
+    "kind": "melee",
+    "damage": "3d8",
+    "scaling": 80,
+    "critChance": 0.08,
+    "critMultiplier": 2,
+    "cooldownMs": 4200,
+    "animationMs": 1100,
+    "impactMs": 850,
+    "minRange": 80,
+    "maxRange": 260,
+    "vfx": "slash",
+    "charge": { "radius": 70, "pushDistance": 90 },
+    "weight": 1
+  },
+
+  "poisonSting": {
+    "id": "poisonSting",
+    "label": "Picada Venenosa",
+    "kind": "melee",
+    "damage": "1d3",
+    "scaling": 20,
+    "critChance": 0.05,
+    "critMultiplier": 2,
+    "cooldownMs": 1500,
+    "animationMs": 400,
+    "impactMs": 200,
+    "minRange": 0,
+    "maxRange": 50,
+    "vfx": "bite",
+    "poison": { "durationMs": 6000, "damagePerSecond": 3 },
+    "weight": 1
+  },
+
+  "evilMagicRay": {
+    "id": "evilMagicRay",
+    "label": "Raio Maligno",
+    "kind": "ranged",
+    "damage": "2d6",
+    "scaling": 60,
+    "critChance": 0.12,
+    "critMultiplier": 2,
+    "cooldownMs": 1800,
+    "animationMs": 700,
+    "impactMs": 400,
+    "minRange": 0,
+    "maxRange": 200,
+    "vfx": "magicRay",
+    "weight": 1
+  },
+
   "swallow": {
     "id": "swallow",
     "label": "Engolir",

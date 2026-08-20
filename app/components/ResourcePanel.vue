@@ -126,6 +126,7 @@ const resourceColors: Record<ResourceType, string> = {
   [ResourceType.WhiteMeat]: "#fda4af",
   [ResourceType.Fat]: "#fef3c7",
   [ResourceType.LegendaryFang]: "#c084fc",
+  [ResourceType.Poison]: "#65a30d",
   [ResourceType.Carcass]: "#7f1d1d",
 };
 
@@ -143,6 +144,7 @@ const resourceNames: Record<ResourceType, string> = {
   [ResourceType.WhiteMeat]: "Carne Branca",
   [ResourceType.Fat]: "Gordura",
   [ResourceType.LegendaryFang]: "Presa Lendária",
+  [ResourceType.Poison]: "Veneno",
   [ResourceType.Carcass]: "Carcaça",
 };
 
