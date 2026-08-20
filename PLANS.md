@@ -340,45 +340,42 @@ interface WormNest {
 
 ---
 
-## 7. Unidades passivas (capivara) — IMPLEMENTADO
+## 7. Fauna passiva (capivara) — IMPLEMENTADO
 
-Confirmou-se o que o plano previa: **a maior parte era só dado**. O jogo já tratava "unidade sem arma" como caso de primeira classe, porque worker e miner são exatamente isso — `attackTarget`/`attackArea` os pulam, `canAttack` na ActionBar os desabilita, a coleta é agnóstica e o `canReproduce` monta a lista de reprodução sozinho.
+**Correção de rota:** a primeira versão saiu errada. Eu li "unidade passiva" como *unidade do jogador* e fiz a capivara reproduzível no forte. Ela é **fauna selvagem** — spawna pelo mapa como lobo ou verme, nunca luta, e existe para ser **caçada pelo loot**. É a base para qualquer animal pacífico futuro.
+
+### O traço `passive` vive em `Enemy`
+
+```ts
+/** Wildlife that never fights: acquires no target, and bolts when hit instead of retaliating. */
+passive?: boolean;
+fleeing?: boolean;
+```
+
+Duas peças fazem isso funcionar:
+
+- **Nunca engaja.** `updateCombat` pula o `processCombatant` para passivos. Isso não é redundante com "não ter ações": sem o skip, o animal **adquiriria alvo** pelo `findEnemyTarget` e o `updateEnemyAI` o faria **perseguir** a unidade, sem nunca atacar (o `pickAction` devolveria null). Um animal pacífico seguindo o jogador pelo mapa.
+- **Foge ao ser atingido.** `reactToHit` ramifica: unidade armada revida, animal passivo corre, o resto absorve. Como todos os caminhos de dano passam por essa função, o animal também foge do **splash de AOE** e da **investida do mamute**, não só de golpes diretos.
+
+`fleeFrom` manda o animal 260 unidades na direção oposta, com destino clampado à margem do mapa. No `updateEnemyAI`, fugir tem **prioridade sobre a vagueação ambient**, e o `fleeing` se limpa na chegada.
 
 ### A capivara
 
-Entrada em `unitDefinitions.json` **sem `actionIds`** (e sem `combatRange`, que a seção 10 derivou), com `passive: true`. Como não tem ação, o alcance derivado é 0, e todo o caminho de combate a ignora de graça.
+`behavior: "ambient"`, habitat `grassland`, em grupos de 2 a 4 (`packBiome` + `packSizeRange`), cap 8. Velocidade 2,2 em terra e **3,4 na água** — nada melhor do que anda, que é o traço real do bicho. 60 de vida, `attack: 0`, `actionIds: []`, então o alcance derivado (seção 10) dá 0.
 
-Números: 60 de vida, velocidade 2,2 em terra e **3,4 na água**, eficiência de coleta 1,3, 2 de comida por dia, 6h de reprodução. A velocidade de natação acima da terrestre é o traço distintivo — capivara nada melhor do que anda, o que a torna a melhor coletora de peixe e alga.
+Loot: carne 4–9 garantida e couro 2–4 a 80%. Generoso de propósito: grassland é onde o jogador começa, então a capivara é a **primeira fonte de carne acessível** — e com as carcaças da seção 3b, caçar é ir buscar.
 
-Adicionada ao `canReproduce` do forte (não criei curral; `barn`/`stable` seguem disponíveis se um dia fizer sentido).
+### O que foi desfeito
 
-### O único código novo: fugir
-
-`retaliate` foi generalizado em **`reactToHit(victimId, attackerId)`**: armado vira e luta, passivo dispara, e o resto absorve como antes. Usar uma função só significa que o passivo também foge do **splash de AOE** e da **investida** — não apenas de golpes diretos, que era o risco de tratar isso dentro do `retaliate` original.
-
-`fleeFrom` manda a unidade correr **260 unidades na direção oposta** ao atacante, com o destino clampado à margem do mapa (as unidades não têm clamp próprio, então sem isso a capivara sairia do mapa fugindo de um lobo no canto).
-
-Duas coisas que o plano avisou e se confirmaram necessárias:
-
-- **Limpar `targetResource`/`gatherProgress`/`gatherQueue`.** O branch de coleta do `updateUnitPositions` roda antes do movimento e faz `continue`, então uma capivara colhendo ignoraria o destino de fuga por completo. Sem essa limpeza, a fuga simplesmente não acontece.
-- **Não travar o controle.** A fuga é um `targetPosition` comum, sem estado que bloqueie ordens — o jogador reordena na hora. O `fleeing` é só cosmético e se limpa na chegada.
-
-Marcador de status amarelo (ícone `run`) no canto superior-esquerdo, cedendo lugar ao veneno quando os dois coincidem.
-
-### Decisões que ficaram abertas no plano
-
-- **Eficiência global**, não por tipo de recurso. Eficiência por recurso continua sendo mudança de modelo e item próprio.
-- **Foge para longe do atacante**, não para o forte. Reusar `shelterTargetId` exigiria checar capacidade (o forte tem `maxOccupancy` 10) e lotaria o abrigo; e animal fugindo do perigo é mais legível que animal correndo para casa.
-- **Velocidade de fuga é a normal.** Um burst de pânico exigiria um multiplicador novo; deixei de fora por não ser pedido.
+`UnitType.Capybara`, o def em `unitDefinitions.json`, a entrada no `canReproduce` do forte, e `Unit.passive`/`Unit.fleeing`. O traço não faz sentido em unidade do jogador hoje: worker e miner são desarmados mas **não** passivos, e continuam absorvendo dano sem fugir — o teste cobre essa distinção.
 
 ### Arquivos afetados
 
-- `app/types/Unit.ts`: `UnitType.Capybara`, `passive`, `fleeing`.
-- `app/data/unitDefinitions.json`: a capivara.
-- `app/data/structureDefinitions.json`: `canReproduce`.
-- `app/stores/units.ts`: `spawnUnit` copia `passive`; `fleeing` limpo na chegada.
-- `app/stores/combat.ts`: `reactToHit` + `fleeFrom`, usados também pelo AOE e pela investida.
-- `app/utils/iconRenderer.ts`, `app/components/World.vue`: marcador de fuga.
+- `app/types/Enemy.ts`: `EnemyType.Capybara`, `passive`, `fleeing`.
+- `app/data/enemyDefinitions.json`: a capivara.
+- `app/stores/combat.ts`: `reactToHit` + `fleeFrom`; passivo pulado no `updateCombat`.
+- `app/stores/enemies.ts`: fuga com prioridade no `updateEnemyAI`.
+- `app/utils/iconRenderer.ts`, `app/components/World.vue`: marcador de fuga em inimigos.
 
 ---
 
@@ -613,6 +610,176 @@ Marcador de status verde (ícone `poison`) no canto superior-**esquerdo** de uni
 
 ---
 
+## 12. Sistema de construção — PLANEJADO (base de 13, 14 e 15)
+
+Hoje só existe o `fort`, criado no `initialize`. Nada é construído em jogo.
+
+### Modelo
+
+`structureDefinitions.json` ganha por def:
+
+```jsonc
+"house": {
+  "buildCost": { "wood": 40, "stone": 20 },
+  "buildTimeHours": 6,          // escalado pela eficiência de quem constrói
+  "category": "housing",         // agrupa no menu de construção
+  "housing": 4                   // ver seção 14
+}
+```
+
+`Structure` ganha estado de obra:
+
+```ts
+construction?: {
+  /** O que ainda falta ser entregue no canteiro. */
+  pending: Partial<Record<ResourceType, number>>;
+  /** Progresso de 0 a 1, avançado por quem está trabalhando na obra. */
+  progress: number;
+};
+```
+
+Uma estrutura com `construction` desenha como canteiro, não funciona (não abriga, não estoca, não crafta) e tem vida reduzida.
+
+### Fluxo
+
+1. Jogador escolhe no **menu de construção** e clica no mapa → nasce o canteiro com `pending` = custo cheio.
+2. Trabalhadores **buscam os recursos onde eles estão** e os levam ao canteiro. Isso exige `Unit.hauling?: { type: ResourceType; amount: number; toStructureId: string }` e um estado de transporte novo.
+3. Com o `pending` zerado, quem estiver no canteiro avança `progress` a uma taxa proporcional à **eficiência**, do mesmo jeito que a coleta já faz (`unit.efficiency / gatherTime`).
+
+Reusa bastante do que existe: o pipeline de "andar até um ponto e acumular progresso" do gather, o hit-test de clique do `World.vue`, o spatial grid para achar a origem mais próxima, e o `ActionBar` para o comando.
+
+### A decisão central: o estoque tem lugar?
+
+"Os trabalhadores vão até onde os recursos estão armazenados" implica que o estoque tem **posição**. Hoje o `inventoryStore` é um `Map` global e abstrato. Duas leituras:
+
+- **(a) Global com capacidade agregada** — o inventário segue único; para construir, o trabalhador caminha até o armazém/forte mais próximo, e a retirada debita do global. A caminhada é real, a contabilidade é única. **Recomendo esta**: preserva todo o código atual de coleta e inventário, e o jogador não percebe diferença.
+- **(b) Distribuído de verdade** — cada armazém guarda o seu próprio conteúdo, e o trabalhador precisa achar um que tenha o recurso. Mais simulacionista, mas puxa roteamento, rebalanceamento entre depósitos, e uma UI de inventário por estrutura.
+
+Essa escolha define as seções 13 e 15, então vale decidir antes de começar.
+
+### Estruturas propostas
+
+| Estrutura | Categoria | Serve para |
+| --------- | --------- | ---------- |
+| Casa | housing | Aumenta o teto de população (seção 14) |
+| Armazém | storage | Aumenta o teto de inventário (seção 13) |
+| Fazenda | production | Comida sem depender de coleta no mapa |
+| Muralha | defense | Bloqueio; exige colisão, que o jogo **não tem** hoje |
+| Forja | crafting | Fabrica equipamento (seção 15) |
+
+A muralha é a mais caras das cinco: unidades e inimigos hoje andam em linha reta sem colidir com nada. Muralha que bloqueia exige pathfinding, que é um sistema inteiro.
+
+---
+
+## 13. Limite de inventário por estrutura — PLANEJADO (depende de 12)
+
+`inventoryStore` hoje não tem teto: `addResource` sempre aceita.
+
+- `structureDefinitions.json` ganha `storage: number` (forte e armazém).
+- `inventoryStore.capacity` = soma de `storage` das estruturas **prontas** (canteiro não conta).
+- `addResource` passa a respeitar o teto.
+
+**Decisão aberta — o que acontece ao encher?** As opções mudam o feel: a coleta para sozinha (menos frustrante, mas exige feedback claro de por que os workers pararam), o excedente é descartado (simples e cruel), ou o recurso fica no chão como carcaça (reusa a seção 3b inteira, e é o mais interessante).
+
+Outra: o teto é **global** ou **por tipo de recurso**? Global é mais simples; por tipo obriga a planejar espaço.
+
+---
+
+## 14. Teto de população — PLANEJADO (depende de 12)
+
+Cuidado com um nome já ocupado: **`maxOccupancy: 10` já existe** no forte, mas significa *quantos caibam dentro do abrigo* — é usado por `structureOccupancy` e `shelterUnitsAt`. O que falta é diferente: **quantas unidades o jogador pode ter no total**. Usar o mesmo campo para as duas coisas vai confundir; sugiro **`housing`** para o novo.
+
+- `populationCap` = soma de `housing` das estruturas prontas. Forte dá 10; cada casa soma.
+- `startReproduction` (`app/stores/units.ts`) passa a recusar quando `allUnits.length >= populationCap`. É o ponto único por onde unidade nova entra no jogo, então basta ali.
+- O `UnitsTab.vue` já mostra `inFort.length / maxOccupancy`; ganha uma linha de população total, e o botão de reproduzir desabilita com o motivo visível ("sem moradia").
+
+Sem teto máximo: casas somam indefinidamente. Vale lembrar que o custo real de população alta é a comida (seção 2) e a performance (seção 9).
+
+---
+
+## 15. Inventário e equipamento das unidades — PLANEJADO (depende de 12)
+
+### Carga
+
+`Unit.inventory?: Array<{ type: ResourceType; amount: number } | null>` — slots de tamanho fixo com stacks. Hoje a coleta entrega direto ao inventário global; com carga, a unidade acumula até lotar e então precisa **entregar** num armazém, o que reusa o mesmo transporte da seção 12.
+
+Isso muda o loop de coleta de forma sensível: hoje coletar é instantâneo do ponto de vista logístico. Vale decidir se a carga é obrigatória (mais RTS, mais micro) ou se a entrega é automática à distância.
+
+### Equipamento
+
+`Unit.equipment?: Partial<Record<EquipmentSlot, ItemId>>` com slots `weapon`, `armor`, `clothing`, `trinket`. Itens modificam status ou dão efeitos.
+
+**Aqui há um pré-requisito estrutural.** O jogo já separa base e efetivo em `baseSpeed`/`speed` e `baseEfficiency`/`efficiency` — exatamente o par que equipamento precisa. Mas **`attack` e `defense` não têm esse par**: são valores únicos copiados do def. Equipar uma arma exigiria criar `baseAttack`/`baseDefense` e recalcular o efetivo, senão o bônus se perde ou se acumula errado a cada troca.
+
+Definições novas em `app/data/itemDefinitions.json`: slot, modificadores, receita (`craftCost` + `craftTimeHours`) e qual estrutura fabrica. A forja consome recursos e tempo, no mesmo padrão da obra.
+
+### Decisões abertas
+
+- Quantos slots de carga, e o tamanho do stack.
+- Equipamento é por unidade (perde ao morrer) ou volta ao armazém?
+- Itens têm durabilidade?
+
+---
+
+## 16. Pontuação, prestígio e rogue-lite — PLANEJADO
+
+Store nova `app/stores/prestige.ts`, **persistente entre partidas** (localStorage) — é o único estado do jogo que sobrevive à morte.
+
+### Ganhar pontos durante a partida
+
+| Evento | Onde engatar |
+| ------ | ------------ |
+| Derrotar inimigo | `updateCombat`, onde `dropCarcass` já é chamado na morte |
+| Saquear ninho | `wormNests.raid` (o seu trabalho de casa) |
+| Sobreviver a uma noite | o watcher de fase do `game.ts` já detecta `dusk -> night`; a virada `night -> dawn` é o par natural |
+
+Valor por inimigo provavelmente deve escalar com o quanto ele é perigoso — `maxHealth` e `attack` já dão uma base razoável, em vez de uma tabela à mão.
+
+### Converter recursos na morte
+
+Ao cair o forte (`gameStore.gameOver`, que já existe), todo o inventário vira prestígio por faixa:
+
+| Pontos | Faixa | Tipos atuais |
+| ------ | ----- | ------------ |
+| 1 | comida | fish, mushroom, cactus, meat, whiteMeat, algae, fat |
+| 2 | simples | wood, stone, leather |
+| 4 | complexo | poison |
+| 5 | superior | gold, legendaryFang |
+
+Isso pede um `RESOURCE_SCORE_TIER: Record<ResourceType, number>` em `app/types/Resource.ts`, ao lado de `RESOURCE_ICONS` e `FOOD_RESOURCE_TYPES` — mesmo padrão, e o TypeScript passa a exigir uma faixa para todo recurso novo, o que evita esquecer.
+
+**`metal` ficou sem faixa de propósito**: não foi citado, e cabe em "simples" (2, junto de madeira e pedra) ou "complexo" (4, por exigir minerador). Decisão sua.
+
+### Gastar
+
+Entre partidas, prestígio compra unidades iniciais extras, estruturas já construídas no começo, ou bônus permanentes. Isso exige uma **tela de meta-progressão** fora da partida, que o jogo não tem — hoje ele começa direto no mapa. É a maior peça desta seção, e provavelmente vale ser seu próprio item.
+
+---
+
+## 17. Painel de unidades — PLANEJADO
+
+Lista todas as unidades do jogador, o que cada uma está fazendo, e permite pular a câmera até ela.
+
+O "o que está fazendo" é **derivável do estado que já existe**, sem campo novo: `insideFortId` → no forte (com `reproductionProgress` → reproduzindo), `combatTargetId` → em combate, `targetResource` → coletando, `fleeing` → fugindo, `shelterTargetId` → indo se abrigar, `targetPosition` → em movimento, e nada disso → parada.
+
+Reusa `camera.centerOn(x, y)`, que já existe (o botão `> FORT` usa), e o `selectionStore`. "Passar para um semelhante" é ciclar a lista filtrada por tipo, guardando o índice atual.
+
+Vale mostrar também os marcadores de status que já existem (fome, veneno, fuga) — o painel é onde se percebe "três workers famintos" sem varrer o mapa.
+
+---
+
+## 18. Qualidade de vida: Ctrl+clique para somar à seleção — PLANEJADO (barato)
+
+**Quase tudo já está pronto.** `selectionStore.selectUnit` já é **acumulativo** (`selectedUnitIds.add`), e `selectUnits` é que limpa antes de adicionar. O clique no `World.vue` chama `selectUnits([unit.id])`, por isso a seleção anterior se perde.
+
+A mudança: quando o evento tiver `ctrlKey`, chamar `selectUnit(id)` — ou melhor, alternar (se já está selecionada, `deselectUnit`), que é o comportamento esperado de Ctrl+clique. Vale estender ao arraste de área: Ctrl+arrastar soma em vez de substituir.
+
+Também cuidar de não limpar a seleção no clique em vazio quando Ctrl está pressionado.
+
+Cabe em poucas linhas do `World.vue` e é independente de todo o resto — pode entrar a qualquer momento.
+
+---
+
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
@@ -622,10 +789,17 @@ Marcador de status verde (ícone `poison`) no canto superior-**esquerdo** de uni
 4. **Identidade de região** (seção 4) — FEITO. Pré-requisito do verme (seção 5) e do cap por região (seção 8).
 5. **Verme: spawn/rota/comportamento** (seção 5) — FEITO.
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
-7. **Unidades passivas** (seção 7) — FEITO.
+7. **Fauna passiva** (seção 7) — FEITO. Capivara como animal caçável; base para outros pacíficos.
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
 10. **Alcance derivado** (seção 10) — FEITO.
 11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
+12. **Construção** (seção 12) — base de 13, 14 e 15. Decidir antes se o estoque tem posição.
+13. **Teto de inventário** (seção 13) — depende de 12.
+14. **Teto de população** (seção 14) — depende de 12; cuidado para não reusar `maxOccupancy`.
+15. **Inventário e equipamento das unidades** (seção 15) — depende de 12, e exige `baseAttack`/`baseDefense`.
+16. **Prestígio e rogue-lite** (seção 16) — independente das outras; a tela de meta-progressão é a maior peça.
+17. **Painel de unidades** (seção 17) — independente, e todo o estado necessário já existe.
+18. **Ctrl+clique** (seção 18) — independente e barato; pode entrar a qualquer momento.
 
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 
