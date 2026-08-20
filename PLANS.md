@@ -648,14 +648,18 @@ Uma estrutura com `construction` desenha como canteiro, não funciona (não abri
 
 Reusa bastante do que existe: o pipeline de "andar até um ponto e acumular progresso" do gather, o hit-test de clique do `World.vue`, o spatial grid para achar a origem mais próxima, e o `ActionBar` para o comando.
 
-### A decisão central: o estoque tem lugar?
+### O estoque tem posição física (decidido)
 
-"Os trabalhadores vão até onde os recursos estão armazenados" implica que o estoque tem **posição**. Hoje o `inventoryStore` é um `Map` global e abstrato. Duas leituras:
+**Todo item está sempre no inventário de alguém** — de uma unidade ou de uma estrutura. Não existe mais um pote global abstrato. O `inventoryStore` de hoje, um `Map` global, deixa de ser a fonte da verdade e passa a ser uma **visão agregada**: a soma dos inventários locais, para a UI continuar mostrando "quanto tenho no total".
 
-- **(a) Global com capacidade agregada** — o inventário segue único; para construir, o trabalhador caminha até o armazém/forte mais próximo, e a retirada debita do global. A caminhada é real, a contabilidade é única. **Recomendo esta**: preserva todo o código atual de coleta e inventário, e o jogador não percebe diferença.
-- **(b) Distribuído de verdade** — cada armazém guarda o seu próprio conteúdo, e o trabalhador precisa achar um que tenha o recurso. Mais simulacionista, mas puxa roteamento, rebalanceamento entre depósitos, e uma UI de inventário por estrutura.
+Consequências, e nenhuma é pequena:
 
-Essa escolha define as seções 13 e 15, então vale decidir antes de começar.
+- **Coletar deixa de creditar direto.** Hoje `updateUnitPositions` faz `inventoryStore.addResource(collected, 1)` no instante da coleta. Passa a depositar no inventário **da unidade**, que tem capacidade — e a unidade precisa **entregar** num armazém quando lotar. Esse é o mesmo transporte que a construção usa, então vale construir um só.
+- **Gastar recurso deixa de ser instantâneo.** Construir, reproduzir e craftar hoje debitam um número global. Passam a exigir que o recurso **exista em algum lugar** e seja levado até onde é consumido.
+- **Roteamento.** Um trabalhador que precisa de 40 de madeira tem de escolher de qual depósito tirar. O `SpatialGrid` já resolve "o mais próximo"; o que não é trivial é quando nenhum depósito sozinho tem o suficiente e a carga precisa vir de dois.
+- **A conversão em prestígio (seção 16)** passa a somar os inventários locais, e vale decidir se o que estava carregado por uma unidade morta conta.
+
+Isso encarece a seção 12 de forma significativa, mas é a decisão do jogo: logística é gameplay, não contabilidade.
 
 ### Estruturas propostas
 
@@ -667,7 +671,7 @@ Essa escolha define as seções 13 e 15, então vale decidir antes de começar.
 | Muralha | defense | Bloqueio; exige colisão, que o jogo **não tem** hoje |
 | Forja | crafting | Fabrica equipamento (seção 15) |
 
-A muralha é a mais caras das cinco: unidades e inimigos hoje andam em linha reta sem colidir com nada. Muralha que bloqueia exige pathfinding, que é um sistema inteiro.
+**A muralha depende da seção 20 (pathfinding)** e não deve ser tentada antes: unidades e inimigos hoje andam em linha reta atravessando tudo. As outras quatro estruturas não bloqueiam passagem e podem vir antes.
 
 ---
 
@@ -768,15 +772,70 @@ Vale mostrar também os marcadores de status que já existem (fome, veneno, fuga
 
 ---
 
-## 18. Qualidade de vida: Ctrl+clique para somar à seleção — PLANEJADO (barato)
+## 18. Ctrl+clique para somar à seleção — IMPLEMENTADO
 
-**Quase tudo já está pronto.** `selectionStore.selectUnit` já é **acumulativo** (`selectedUnitIds.add`), e `selectUnits` é que limpa antes de adicionar. O clique no `World.vue` chama `selectUnits([unit.id])`, por isso a seleção anterior se perde.
+Como previsto, quase tudo já existia: `selectUnit` sempre foi acumulativo, e era o `selectUnits` (que limpa antes) que o clique usava.
 
-A mudança: quando o evento tiver `ctrlKey`, chamar `selectUnit(id)` — ou melhor, alternar (se já está selecionada, `deselectUnit`), que é o comportamento esperado de Ctrl+clique. Vale estender ao arraste de área: Ctrl+arrastar soma em vez de substituir.
+O `selectionStore` ganhou duas operações, mantendo a semântica de seleção dentro do store em vez de espalhá-la pelo componente:
 
-Também cuidar de não limpar a seleção no clique em vazio quando Ctrl está pressionado.
+- **`addUnits(ids)`** — soma sem derrubar a seleção atual (Ctrl+arraste).
+- **`toggleUnit(id)`** — pega se não está, solta se está (Ctrl+clique). Alternar é o comportamento esperado, e é o que permite tirar uma unidade de um grupo grande sem refazer a seleção.
 
-Cabe em poucas linhas do `World.vue` e é independente de todo o resto — pode entrar a qualquer momento.
+No `World.vue`, `const additive = e.ctrlKey || e.metaKey` decide quatro caminhos:
+
+| Ação | Sem Ctrl | Com Ctrl |
+| ---- | -------- | -------- |
+| Clique numa unidade | substitui a seleção | alterna aquela unidade |
+| Arraste de área | substitui | soma |
+| Clique numa estrutura | limpa a seleção e abre o painel | abre o painel **sem** limpar |
+| Clique no vazio | limpa tudo | não faz nada |
+
+As duas últimas linhas importam tanto quanto as primeiras: sem elas, montar um grupo com Ctrl seria desfeito por um clique impreciso.
+
+Ambas as operações limpam o comando armado (`activeCommand`), igual às existentes — mudar a seleção com um comando pendente desarma o comando, senão o clique seguinte executaria a ordem sobre um grupo diferente do que o jogador viu ao armá-la.
+
+---
+
+## 19. Base e efetivo em ataque/armadura — IMPLEMENTADO (pré-requisito de 15)
+
+`attack` e `defense` eram valores únicos, então um modificador de equipamento não teria como ser removido com exatidão: somar e subtrair acumula erro, e não há de onde recuperar o valor limpo.
+
+`Combatant` e `Unit` agora têm **`baseAttack`/`baseDefense`** ao lado dos efetivos. O combate lê o **efetivo** (`rollDamage(action, attacker.attack, target.defense)`); o base fica intocado como referência.
+
+**O dado segue declarando um valor só.** `createEnemy` e `spawnUnit` copiam `def.attack` para os dois campos. Isso difere de propósito do padrão de `speed`/`baseSpeed` e `efficiency`/`baseEfficiency`, que **duplicam os dois no JSON** — duplicação que pode divergir em silêncio, a mesma classe de problema do `combatRange` da seção 10. Vale alinhar aqueles ao padrão novo num item futuro.
+
+Ainda não há nada que modifique o efetivo: isso chega com equipamento (seção 15) e com buffs. O que existe agora é a estrutura para que esses sistemas mexam no efetivo sem perder o base.
+
+---
+
+## 20. Pathfinding — PLANEJADO (pré-requisito de qualquer estrutura sólida)
+
+Hoje **nada colide com nada**. `updateUnitPositions` e `updateEnemyAI` movem em linha reta para o destino:
+
+```ts
+unit.position.x += (dx / dist) * actualSpeed;
+```
+
+A única coisa parecida com terreno é o `isInWater`, e ele só troca a velocidade (`swimSpeed`) — não impede a passagem. Aquático é a exceção: um inimigo `aquatic` recusa um destino fora da água, mas isso é um teste no destino, não no caminho.
+
+Sem pathfinding, uma muralha é decoração: as unidades atravessam. Por isso ele vem antes de muralha, portão, ou qualquer estrutura que bloqueie.
+
+### Caminho sugerido
+
+**Grade de navegação, no mesmo espírito da grade de ocupação de água** que já prototipei na seção 9 (32px por célula, 24KB para o mapa de 5000×5000, construída em 47ms). O mundo é estático fora das construções, então a grade só precisa ser reconstruída quando uma estrutura sólida nasce ou morre — e aí só nas células que ela cobre.
+
+Com a grade: **A\*** sobre células, e o resultado é uma lista de waypoints que o movimento existente já sabe seguir — `patrolRoute` do verme (seção 5) faz exatamente isso, andar de waypoint em waypoint. Reusar aquele formato evita um sistema de movimento paralelo.
+
+### Onde vai doer
+
+- **Custo por frame.** A seção 9 mostrou que a simulação já era o gargalo, e que `updateCombat` domina com muitos inimigos. A\* por entidade por frame é inviável; o caminho precisa ser calculado **uma vez por ordem** e guardado (`unit.path?: Position[]`), recalculado só quando bloqueado ou quando a ordem muda.
+- **Orçamento por frame.** Com 300 inimigos, mesmo um A\* por ordem cria picos. Vale uma fila: N caminhos por frame, o resto espera um tick.
+- **Encalhe.** Unidade dentro de área que virou sólida (muralha construída em cima dela) precisa de saída, senão fica presa para sempre.
+- **Fluidez.** A\* em grade dá caminhos "quadrados". Suavizar por line-of-sight (pular waypoints que têm visão direta) é barato e melhora muito.
+
+### Decisão aberta
+
+Colisão **entre entidades** entra ou não? Hoje unidades se sobrepõem livremente, e os comandos já mitigam isso espalhando o grupo em anel (`evenlySpacedAngles`). Colisão entidade-entidade é bem mais caro que colisão com terreno estático, e o jogo funciona sem ela — sugiro deixar fora do escopo e resolver só o bloqueio por estrutura.
 
 ---
 
@@ -793,13 +852,15 @@ Cabe em poucas linhas do `World.vue` e é independente de todo o resto — pode 
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
 10. **Alcance derivado** (seção 10) — FEITO.
 11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
-12. **Construção** (seção 12) — base de 13, 14 e 15. Decidir antes se o estoque tem posição.
+12. **Construção** (seção 12) — base de 13, 14 e 15. Estoque **tem** posição física, o que encarece bastante.
 13. **Teto de inventário** (seção 13) — depende de 12.
 14. **Teto de população** (seção 14) — depende de 12; cuidado para não reusar `maxOccupancy`.
-15. **Inventário e equipamento das unidades** (seção 15) — depende de 12, e exige `baseAttack`/`baseDefense`.
+15. **Inventário e equipamento das unidades** (seção 15) — depende de 12; o `baseAttack`/`baseDefense` já existe (seção 19).
 16. **Prestígio e rogue-lite** (seção 16) — independente das outras; a tela de meta-progressão é a maior peça.
 17. **Painel de unidades** (seção 17) — independente, e todo o estado necessário já existe.
-18. **Ctrl+clique** (seção 18) — independente e barato; pode entrar a qualquer momento.
+18. **Ctrl+clique** (seção 18) — FEITO.
+19. **Base/efetivo em ataque e armadura** (seção 19) — FEITO. Pré-requisito de 15.
+20. **Pathfinding** (seção 20) — pré-requisito de muralha e de qualquer estrutura sólida.
 
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 
