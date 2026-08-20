@@ -555,88 +555,62 @@ while (s.enemies.allEnemies.length < 100) s.enemies.spawnHorde(20);
 
 **O render (itens A–C) não foi medido.** `requestAnimationFrame` não roda em aba de background, e a medição foi feita com a aba sem foco — o que aliás significa que os updates também não rodavam sozinhos, por isso deu para cronometrá-los limpo. Medir render exige a aba em primeiro plano.
 
-## 10. Alcance derivado das ações — PLANEJADO (fazer antes da seção 11)
+## 10. Alcance derivado das ações — IMPLEMENTADO
 
-`combatRange` vive na **entidade** e responde por duas coisas: o raio de **aquisição de alvo** (`findEnemyTarget` faz `unitGrid.findNearest(x, y, enemy.combatRange)`) e a **aproximação** ao perseguir (fecha até `combatRange * 0.9`). Já `minRange`/`maxRange` vivem na **ação**, e o `pickAction` filtra por eles.
+`combatRange` vivia na **entidade** e respondia por duas coisas: o raio de **aquisição de alvo** e a **aproximação** ao perseguir. `minRange`/`maxRange` vivem na **ação**, e o `pickAction` filtra por eles. O defeito: os dois tinham que concordar e ninguém garantia isso.
 
-A intenção do desenho é certa — uma entidade pode ter melee e ranged juntos, e o `pickAction` escolhe pela distância. O defeito é que o `combatRange` da entidade **precisa ser no mínimo o maior `maxRange` das ações dela**, senão o alcance extra nunca é usado. Ninguém garante isso, e já divergiu em seis defs:
+**Agora `combatRange` é derivado**: `combatRangeFor(actionIds, ACTION_DEFS)` em `utils/combatEngine.ts` devolve o maior `maxRange` entre as ações, ou 0 quando desarmado. Chamado no `createEnemy` e no `spawnUnit`; o campo **saiu dos dois JSONs** (13 defs de inimigo, 3 de unidade).
 
-| def | engaja a | alcança | efeito |
-| --- | -------- | ------- | ------ |
-| dustDevil | 50 | 55 | o raio à distância viraria corpo a corpo |
-| bear | 45 | 55 | `slash` nunca usado no limite |
-| tiger | 43 | 55 | idem |
-| hunter | 200 | 260 | perde 60 de alcance do `arrowShot` |
-| parasaurolophus | 60 | 40 | **engaja fora do alcance e fica batendo no vazio** |
-| toadTeeth | 40 | 35 | idem |
+Efeito nas seis divergências:
 
-Os dois últimos são o caso ruim: a entidade persegue até 60, para, nenhuma ação alcança, e ela fica parada até o leash expirar.
+| def | antes | agora |
+| --- | ----- | ----- |
+| dustDevil | 50 | **200** — o raio maligno finalmente é usado à distância |
+| mammoth | 55 | **260** — sem isso a investida nunca dispararia |
+| bear | 45 | 55 |
+| tiger | 43 | 55 |
+| hunter | 200 | 260 |
+| parasaurolophus | 60 | **40** — parava fora do próprio alcance e flailava |
+| toadTeeth | 40 | **35** — idem |
 
-### Correção
+O verme não mudou: era 70 declarado, é 70 derivado (`maul` 45, `swallow` 70).
 
-**Derivar `combatRange` das ações** em `createEnemy`/`spawnUnit`: `combatRange = max(maxRange)` das `actionIds`, com `0` quando não há ação (worker/miner). O campo sai do JSON, ou fica como **override opcional** para o caso legítimo de "engaja mais perto do que alcança" (um bicho medroso, ou um arqueiro que prefere manter distância curta).
-
-Ganho: as seis inconsistências desaparecem por construção em vez de serem caçadas uma a uma, e um bicho com melee + ranged passa a abrir de longe e trocar para o melee quando o alvo cola.
-
-Custo: muda o balanceamento de bear, tiger, hunter, parasaurolophus e toadTeeth, que passam a engajar em distância diferente. É mudança de comportamento, não só de código.
+Não implementei o override opcional — nenhum def precisou dele. Se um dia fizer sentido "engaja mais perto do que alcança", vale um campo com **nome diferente** (`engageRange`), para não reintroduzir a ambiguidade que o `combatRange` tinha.
 
 ---
 
-## 11. Ataques novos: charge, poisonSting, evilMagicRay — PLANEJADO
+## 11. Ataques novos: charge, poisonSting, evilMagicRay — IMPLEMENTADO
 
-Três ações que o Pedro já referenciou em `enemyDefinitions.json` (mamute, escorpião, diabo de poeira) e que **ainda não existem** em `actionDefinitions.json`. Hoje o `pickAction` filtra def inexistente, então esses bichos simplesmente não atacam — falha silenciosa, sem erro.
+**Depende da seção 10** e isso não era opcional: com o `combatRange` declarado, o mamute engajava a 55 e a investida (`maxRange` 260) nunca disparava. Descobri isso pelo teste, não por leitura.
 
-Cada uma exige uma mecânica que o motor de combate não tem. Ordem sugerida: **evilMagicRay → poisonSting → charge**, do mais simples ao mais invasivo.
+### evilMagicRay
 
-### evilMagicRay — só um vfx novo
+Ranged, `2d6` com scaling 60%, cooldown 1800ms, `maxRange` 200. `ActionVfx` ganhou `"magicRay"` e o `CombatEffects.vue` o estilo: gradiente roxo com `box-shadow` de glow, e a animação **cresce em largura** em vez de transladar — um raio aparece inteiro, não viaja como flecha.
 
-Ataque à distância, raio roxo maligno. É o mais barato: `ActionVfx` ganha `"magicRay"`, e `CombatEffects.vue` ganha o estilo. O `EffectSpec.kind` já aceita `ActionVfx`, então nada mais muda no fluxo.
+### poisonSting
 
-O vfx segue o padrão do `fx-arrow`: um elemento com `transform-origin: left center`, rotacionado por `--angle` e esticado até `--dist`. Diferenças: mais largo, gradiente roxo (`#a855f7` → `#7e22ce`), `box-shadow` para o glow, e a animação cresce em largura em vez de transladar — um raio aparece inteiro, não viaja como uma flecha.
+`1d3` com scaling 20% (dano ~2) mais `poison: { durationMs: 6000, damagePerSecond: 3 }` — o veneno é o ataque, não o golpe.
 
-Números propostos: ranged, `2d6` com scaling 60%, crit 12%, cooldown 1800ms, animação 700ms, impacto 400ms, `maxRange` 200. Depende da seção 10 para o dustDevil engajar a 200 em vez de 50.
+Campos novos: `ActionDefinition.poison` e `Combatant.poison` (`{ remainingMs, damagePerSecond }`). Reaplicar **refresca o timer e mantém o tick mais forte**, em vez de empilhar sem limite.
 
-### poisonSting — dano sobre o tempo
+O tick roda em **laço próprio no `updateCombat`**, antes do combate. Isso era a armadilha anotada no plano e ela é real: `processCombatant` só é chamado para unidades com `actionIds.length > 0`, então um worker envenenado nunca tomaria dano. O teste cobre exatamente esse caso.
 
-Dano direto **bem baixo**, e o veneno é o dano real.
+Marcador de status verde (ícone `poison`) no canto superior-**esquerdo** de unidades e inimigos, reusando `STATUS_ICONS`/`drawIconSync`. O `drawStarvingMarker` virou `drawStatusMarker(entity, icon, corner)`, genérico — fome fica na direita, veneno na esquerda, e os dois aparecem juntos sem sobrepor.
 
-Campos novos:
+### charge
 
-```ts
-ActionDefinition.poison?: { durationMs: number; damagePerSecond: number };
-Combatant.poison?: { remainingMs: number; damagePerSecond: number };
-```
+`3d8` com scaling 80%, `minRange` 80, `maxRange` 260, cooldown 4200ms, `charge: { radius: 70, pushDistance: 90 }`.
 
-`applyImpact` aplica o veneno no alvo quando a ação tem `poison`. O tick precisa de **um laço próprio em `updateCombat`, não dentro de `processCombatant`** — essa armadilha é fácil de cair: `processCombatant` só é chamado para unidades com `actionIds.length > 0`, então worker e miner envenenados nunca tickariam.
+1. **Avanço**: `advanceCharge` no `combat.ts` (não no `updateEnemyAI`, que faz `continue` quando há `actionLock`) cobre `gap * (delta / msRestantes)` por frame, convergindo no `impactMs` mesmo com o alvo em movimento.
+2. **Varredura em cápsula**: o `ActionLock` ganhou `origin`, e `sweepCharge` mede `distanceToSegment(vítima, origin, posiçãoAtual)` contra o `radius`. Consulta os grids por um círculo no ponto médio da linha, então não varre o mapa.
+3. **Dano em hostis, empurrão em todos** — um rebanho de mamutes atravessa os seus sem fogo amigo. O empurrão é perpendicular à linha, virado para o lado onde a vítima já está.
 
-Marcador de status: reusar `STATUS_ICONS` + `drawIconSync` (o mecanismo criado para a fome na seção 2), com o ícone `poison` em verde.
+**Bug que o teste pegou:** o standoff da investida era `combatRange * 0.6`. Como o `combatRange` agora vem do `maxRange` desta mesma ação (260), o standoff dava 156 — maior que a distância de muitos alvos, e o mamute concluía que já havia chegado sem andar um pixel. Passou a ser `charge.radius * 0.5`, que é o alcance de contato e não o da corrida.
 
-Números propostos: melee, `1d3` com scaling 20%, cooldown 1500ms, `poison: { durationMs: 6000, damagePerSecond: 3 }`. Com o `attack: 0` do escorpião, o golpe dá ~2 e o veneno 18 ao longo de 6 segundos — o veneno é o ataque.
+### Também entrou
 
-**Falta também `ResourceType.Poison`**: o `lootTable` do escorpião já dropa `poison`, que não existe no enum. Hoje isso entra no inventário como chave inválida, sem nome nem cor no painel.
-
-### charge — investida com dano em área e empurrão
-
-A mais invasiva: exige **movimento durante a ação**, que o motor hoje proíbe (`updateEnemyAI` faz `if (enemy.actionLock) continue`, e unidades ficam paradas mid-swing).
-
-```ts
-ActionDefinition.charge?: { radius: number; pushDistance: number };
-ActionLock.origin?: Position;  // de onde a investida partiu
-```
-
-Fluxo:
-
-1. **Avanço**: em `processCombatant`, dentro do branch do `actionLock` e antes do impacto, mover o atacante em direção ao alvo cobrindo `gap * (gameDeltaMs / msRestantesAtéOImpacto)`. Converge no `impactMs` mesmo com o alvo se movendo, e para a `combatRange * 0.6` para não sobrepor. O movimento fica **no `combat.ts`**, não no `updateEnemyAI` — assim serve unidade e inimigo igual, e não briga com o `continue` do actionLock.
-2. **Impacto em cápsula**: `applyImpact` passa a receber o `origin` do lock. Com `charge`, em vez de acertar só o alvo, varre `unitGrid` e `enemyGrid` medindo `distanceToSegment(entidade, origin, posiçãoAtual)` — **`distanceToSegment` já existe** em `utils/geometry.ts`. Quem estiver dentro do `radius` é atingido.
-3. **Dano em quem é inimigo, empurrão em todos.** Foi o pedido literal ("dano em area e empurrando tdm no caminho") e evita que um rebanho de mamutes (`packSizeRange [1,3]`) se mate por fogo amigo. O empurrão desloca a entidade perpendicularmente ao eixo da investida por `pushDistance`.
-
-Números propostos: melee, `minRange` 80 (precisa de espaço para investir), `maxRange` 260, `3d8` com scaling 80%, cooldown 4200ms, animação 1100ms, impacto 850ms, `charge: { radius: 70, pushDistance: 90 }`.
-
-Pontos a decidir na implementação: o empurrão respeita limites do mapa e água, ou deixa o movimento normal corrigir depois? E um alvo empurrado deve ter a própria ação interrompida?
-
-### Ainda pendente nos inimigos novos
-
-`mammoth`, `parasaurolophus`, `velociraptor`, `scorpion` e `toadTeeth` **não estão no `EnemyType`**, e o `spawnAmbient` itera esse enum — então nenhum deles spawna hoje. Adicionar ao enum é o que os põe no jogo.
+- **`ResourceType.Poison`** com ícone `poison-bottle` — o loot do escorpião já o referenciava e caía como chave inválida.
+- **`mammoth`, `parasaurolophus`, `velociraptor`, `scorpion`, `toadTeeth` no `EnemyType`.** O `spawnAmbient` itera esse enum, então sem isso nenhum deles spawnava — e as ações novas não teriam quem as usasse.
 
 ---
 
@@ -651,8 +625,8 @@ Pontos a decidir na implementação: o empurrão respeita limites do mapa e águ
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
 7. **Unidades passivas** (seção 7) — independente do verme, pode entrar a qualquer momento.
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
-10. **Alcance derivado** (seção 10) — pré-requisito da 11, e conserta seis defs inconsistentes.
-11. **Ataques novos** (seção 11) — charge, poisonSting, evilMagicRay; três mecânicas novas de motor.
+10. **Alcance derivado** (seção 10) — FEITO.
+11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
 
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 
