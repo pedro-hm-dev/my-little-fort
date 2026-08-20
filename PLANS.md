@@ -369,9 +369,16 @@ Loot: carne 4–9 garantida e couro 2–4 a 80%. Generoso de propósito: grassla
 
 `UnitType.Capybara`, o def em `unitDefinitions.json`, a entrada no `canReproduce` do forte, e `Unit.passive`/`Unit.fleeing`. O traço não faz sentido em unidade do jogador hoje: worker e miner são desarmados mas **não** passivos, e continuam absorvendo dano sem fugir — o teste cobre essa distinção.
 
+### Cor no mapa
+
+Fauna pacífica **não é desenhada em vermelho**. `ENTITY_COLORS` ganhou `wildlife` (`#c08552`, marrom), e `getEntityColor` escolhe por `entity.passive` — vermelho segue reservado para o que ataca. O `preloadAllIcons` usa a mesma regra por def, senão o ícone da fauna nunca entraria no cache com a cor certa e cairia no caminho lento.
+
+`getEntityColor` e `ENTITY_COLORS` passaram a ser exportados, para o painel de unidades (seção 17) e tooltips futuros usarem as mesmas cores do mapa em vez de redefini-las.
+
 ### Arquivos afetados
 
 - `app/types/Enemy.ts`: `EnemyType.Capybara`, `passive`, `fleeing`.
+- `app/utils/iconRenderer.ts`: cor de fauna, `getEntityColor` exportado.
 - `app/data/enemyDefinitions.json`: a capivara.
 - `app/stores/combat.ts`: `reactToHit` + `fleeFrom`; passivo pulado no `updateCombat`.
 - `app/stores/enemies.ts`: fuga com prioridade no `updateEnemyAI`.
@@ -600,6 +607,26 @@ Marcador de status verde (ícone `poison`) no canto superior-**esquerdo** de uni
 1. **Avanço**: `advanceCharge` no `combat.ts` (não no `updateEnemyAI`, que faz `continue` quando há `actionLock`) cobre `gap * (delta / msRestantes)` por frame, convergindo no `impactMs` mesmo com o alvo em movimento.
 2. **Varredura em cápsula**: o `ActionLock` ganhou `origin`, e `sweepCharge` mede `distanceToSegment(vítima, origin, posiçãoAtual)` contra o `radius`. Consulta os grids por um círculo no ponto médio da linha, então não varre o mapa.
 3. **Dano em hostis, empurrão em todos** — um rebanho de mamutes atravessa os seus sem fogo amigo. O empurrão é perpendicular à linha, virado para o lado onde a vítima já está.
+
+#### Empurrão ao longo do tempo, não em salto
+
+A primeira versão mutava a posição no instante do impacto: 90 unidades de uma vez, o que **lia como teleporte**, não como empurrão. Agora o empurrão é estado:
+
+```ts
+knockback?: { dirX: number; dirY: number; peakSpeed: number; remainingMs: number; totalMs: number };
+```
+
+`shoveFromLine` apenas **agenda**; `tickKnockback` desloca ao longo de 320ms, no mesmo passe do veneno (que já cobre todas as unidades e inimigos, inclusive os desarmados). A velocidade de pico decai linearmente até zero, e a integral disso ao longo da duração é **exatamente** `pushDistance` — o empurrão chega onde chegava antes, mas com desaceleração visível. A posição é clampada ao mapa a cada tick.
+
+Medido no teste: 7 ticks de 50ms para completar, e a distância à linha da investida sai de 20 para 124.
+
+#### O vfx mostra a hitbox
+
+Um `chargeSweep` novo desenha **a cápsula exata** que o dano varre: um retângulo da origem até a posição final, meia-largura igual ao `radius`, pontas arredondadas (`border-radius: 9999px`), em âmbar translúcido com borda. Como o dano usa `distanceToSegment` contra o mesmo `radius`, o que aparece na tela é literalmente a área afetada — não uma aproximação decorativa.
+
+`EffectSpec` ganhou `radius?: number` para isso, e o `fxStyle` o expõe como `--radius`.
+
+A geometria foi **medida no browser**, porque `calc()` com margem negativa e `transform-origin` é fácil de errar: varredura horizontal de 200px com raio 70 deu um elemento de 340×140 com `margin -70px` e `transform-origin: 70px 70px`; uma diagonal de (120,160) com raio 40 deu 280×80 e `matrix(0.6, 0.8, -0.8, 0.6)`, que é rotação de 53,13° — o ângulo correto.
 
 **Bug que o teste pegou:** o standoff da investida era `combatRange * 0.6`. Como o `combatRange` agora vem do `maxRange` desta mesma ação (260), o standoff dava 156 — maior que a distância de muitos alvos, e o mamute concluía que já havia chegado sem andar um pixel. Passou a ser `charge.radius * 0.5`, que é o alcance de contato e não o da corrida.
 
