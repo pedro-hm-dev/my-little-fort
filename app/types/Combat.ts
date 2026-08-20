@@ -12,10 +12,16 @@ export interface Combatant {
   position: Position;
   health: number;
   maxHealth: number;
-  /** Flat power stat; each action adds `scaling`% of it to its dice roll. */
+  /**
+   * Flat power stat; each action adds `scaling`% of it to its dice roll. `attack` is the effective
+   * value that combat reads, `baseAttack` the unmodified one from the definition — equipment and
+   * buffs move the former and leave the latter alone, so a modifier can be removed exactly.
+   */
   attack: number;
+  baseAttack: number;
   /** Armor points, converted to a damage reduction with diminishing returns — see damageMultiplierFor. */
   defense: number;
+  baseDefense: number;
   combatRange: number;
   actionIds: string[];
   actionCooldowns: Record<string, number>;

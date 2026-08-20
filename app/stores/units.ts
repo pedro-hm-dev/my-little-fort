@@ -50,7 +50,10 @@ function spawnUnit(type: UnitType, position: Position): Unit {
     efficiency: def.efficiency,
     foodPerDay: def.foodPerDay,
     reproductionTimeHours: def.reproductionTimeHours,
+    // Um valor no dado, dois no runtime: nada duplicado no JSON, ao contrário de speed/efficiency.
+    baseAttack: def.attack,
     attack: def.attack,
+    baseDefense: def.defense,
     defense: def.defense,
     actionIds: (def as { actionIds?: string[] }).actionIds ?? [],
     combatRange: combatRangeFor((def as { actionIds?: string[] }).actionIds ?? [], ACTION_DEFS),
