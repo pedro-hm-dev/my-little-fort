@@ -340,46 +340,45 @@ interface WormNest {
 
 ---
 
-## 7. Unidades passivas (capivara) — PLANEJADO
+## 7. Unidades passivas (capivara) — IMPLEMENTADO
 
-Unidade que **só coleta**: não ataca, não revida, e foge quando é atacada. A primeira é a capivara (ícone `capybara`, que existe no set `game-icons`). O traço fica genérico para servir a bichos futuros (`beaver`, `donkey`, `cow`, `sheep` também estão disponíveis).
+Confirmou-se o que o plano previa: **a maior parte era só dado**. O jogo já tratava "unidade sem arma" como caso de primeira classe, porque worker e miner são exatamente isso — `attackTarget`/`attackArea` os pulam, `canAttack` na ActionBar os desabilita, a coleta é agnóstica e o `canReproduce` monta a lista de reprodução sozinho.
 
-### O que já funciona sem escrever código
+### A capivara
 
-O jogo já trata "unidade sem arma" como caso de primeira classe, porque worker e miner são exatamente isso:
+Entrada em `unitDefinitions.json` **sem `actionIds`** (e sem `combatRange`, que a seção 10 derivou), com `passive: true`. Como não tem ação, o alcance derivado é 0, e todo o caminho de combate a ignora de graça.
 
-- **Não ataca**: `attackTarget` e `attackArea` em `units.ts` já pulam quem tem `combatRange <= 0 || actionIds.length === 0`.
-- **Não revida**: `retaliate` em `combat.ts` já exige `unit.actionIds.length > 0` antes de virar o alvo.
-- **Botão "Atacar" desabilitado**: `canAttack` na `ActionBar.vue` é `primaryCombatUnit !== null`, que procura justamente `actionIds.length > 0`.
-- **Coleta**: todo o pipeline de gather é agnóstico de tipo de unidade.
-- **Reprodução**: `UnitsTab.vue` monta a lista a partir do `canReproduce` do structure def, puxando label/ícone/`foodPerDay`/`reproductionTimeHours` do unit def.
-- **Come todo dia**: `dailyFoodNeed` (seção 2) soma o `foodPerDay` de todas as unidades — a capivara entra sozinha na conta.
+Números: 60 de vida, velocidade 2,2 em terra e **3,4 na água**, eficiência de coleta 1,3, 2 de comida por dia, 6h de reprodução. A velocidade de natação acima da terrestre é o traço distintivo — capivara nada melhor do que anda, o que a torna a melhor coletora de peixe e alga.
 
-Ou seja: uma capivara que fica parada levando pancada é só **dado**. O que precisa de código é a fuga.
+Adicionada ao `canReproduce` do forte (não criei curral; `barn`/`stable` seguem disponíveis se um dia fizer sentido).
 
-### O que precisa ser feito
+### O único código novo: fugir
 
-1. `UnitType.Capybara = "capybara"` em `app/types/Unit.ts`.
-2. Entrada em `unitDefinitions.json` **sem** `combatRange` e **sem** `actionIds` — o `spawnUnit` já resolve com `?? 0` e `?? []`.
-3. `"capybara"` no `canReproduce` do forte em `structureDefinitions.json` (ou de uma estrutura nova — ver decisões abertas).
-4. Traço `passive?: boolean` no def e no `Unit`, e o comportamento de fuga abaixo.
+`retaliate` foi generalizado em **`reactToHit(victimId, attackerId)`**: armado vira e luta, passivo dispara, e o resto absorve como antes. Usar uma função só significa que o passivo também foge do **splash de AOE** e da **investida** — não apenas de golpes diretos, que era o risco de tratar isso dentro do `retaliate` original.
 
-### Fuga ao levar dano (o único comportamento novo)
+`fleeFrom` manda a unidade correr **260 unidades na direção oposta** ao atacante, com o destino clampado à margem do mapa (as unidades não têm clamp próprio, então sem isso a capivara sairia do mapa fugindo de um lobo no canto).
 
-O gancho é o `retaliate` de `app/stores/combat.ts`, que hoje simplesmente sai calado quando a unidade não tem armas. Quando `unit.passive`, em vez de sair calado ele manda a unidade correr.
+Duas coisas que o plano avisou e se confirmaram necessárias:
 
-Dois cuidados que vão morder se forem esquecidos:
+- **Limpar `targetResource`/`gatherProgress`/`gatherQueue`.** O branch de coleta do `updateUnitPositions` roda antes do movimento e faz `continue`, então uma capivara colhendo ignoraria o destino de fuga por completo. Sem essa limpeza, a fuga simplesmente não acontece.
+- **Não travar o controle.** A fuga é um `targetPosition` comum, sem estado que bloqueie ordens — o jogador reordena na hora. O `fleeing` é só cosmético e se limpa na chegada.
 
-- **Limpar `targetResource` e `gatherQueue` junto**, senão nada acontece: em `updateUnitPositions` o branch de `targetResource` roda **antes** do movimento e faz `continue`, então uma capivara colhendo ignoraria o destino de fuga e continuaria parada no recurso.
-- **Não travar o controle do jogador.** A recomendação é a fuga ser só um `targetPosition` comum, sem estado que bloqueie ordens — o jogador pode reordenar a capivara no mesmo instante. Um `fleeing?: boolean` cosmético serve para um marcador de status, reusando o `STATUS_ICONS`/`drawIconSync` que a seção 2 já criou.
+Marcador de status amarelo (ícone `run`) no canto superior-esquerdo, cedendo lugar ao veneno quando os dois coincidem.
 
-### Decisões abertas
+### Decisões que ficaram abertas no plano
 
-- **Números**: vida, velocidade, `foodPerDay`, `reproductionTimeHours` e eficiência de coleta.
-- **Eficiência global ou por tipo de recurso?** Hoje `efficiency` é um multiplicador único para tudo. Se a ideia for "capivara é boa em comida/vegetal e ruim em pedra", isso exige eficiência por recurso — mudança de modelo que merece ser seu próprio item de plano, não um detalhe deste.
-- **Nasce no forte ou num curral?** Os ícones `barn` e `stable` existem se a preferência for uma estrutura nova.
-- **Foge para onde?** Forte mais próximo (mais útil, reusa `shelterTargetId`) ou só para o lado oposto ao atacante (mais simples, e não lota o forte).
-- **Ela pode ser abrigada?** `canReproduce` é hoje o mesmo gate para reproduzir e para abrigar, então incluí-la no forte já a deixa entrar.
+- **Eficiência global**, não por tipo de recurso. Eficiência por recurso continua sendo mudança de modelo e item próprio.
+- **Foge para longe do atacante**, não para o forte. Reusar `shelterTargetId` exigiria checar capacidade (o forte tem `maxOccupancy` 10) e lotaria o abrigo; e animal fugindo do perigo é mais legível que animal correndo para casa.
+- **Velocidade de fuga é a normal.** Um burst de pânico exigiria um multiplicador novo; deixei de fora por não ser pedido.
+
+### Arquivos afetados
+
+- `app/types/Unit.ts`: `UnitType.Capybara`, `passive`, `fleeing`.
+- `app/data/unitDefinitions.json`: a capivara.
+- `app/data/structureDefinitions.json`: `canReproduce`.
+- `app/stores/units.ts`: `spawnUnit` copia `passive`; `fleeing` limpo na chegada.
+- `app/stores/combat.ts`: `reactToHit` + `fleeFrom`, usados também pelo AOE e pela investida.
+- `app/utils/iconRenderer.ts`, `app/components/World.vue`: marcador de fuga.
 
 ---
 
@@ -623,7 +622,7 @@ Marcador de status verde (ícone `poison`) no canto superior-**esquerdo** de uni
 4. **Identidade de região** (seção 4) — FEITO. Pré-requisito do verme (seção 5) e do cap por região (seção 8).
 5. **Verme: spawn/rota/comportamento** (seção 5) — FEITO.
 6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
-7. **Unidades passivas** (seção 7) — independente do verme, pode entrar a qualquer momento.
+7. **Unidades passivas** (seção 7) — FEITO.
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
 10. **Alcance derivado** (seção 10) — FEITO.
 11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
