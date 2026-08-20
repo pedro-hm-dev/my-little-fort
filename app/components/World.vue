@@ -406,6 +406,7 @@ const render = () => {
 
     drawEntityIconSync(ctx, enemy, enemy.position, { size: enemy.iconSize });
     drawHealthBar(enemy.position, enemy.iconSize, enemy.health, enemy.maxHealth);
+    if (enemy.poison) drawStatusMarker(enemy, STATUS_ICONS.poisoned, "top-left");
   }
 
   // Halos for selected units
@@ -456,7 +457,8 @@ const render = () => {
 
     drawEntityIconSync(ctx, unit, unit.position, { size: unit.iconSize });
     drawHealthBar(unit.position, unit.iconSize, unit.health, unit.maxHealth);
-    if (unit.starving) drawStarvingMarker(unit);
+    if (unit.starving) drawStatusMarker(unit, STATUS_ICONS.starving, "top-right");
+    if (unit.poison) drawStatusMarker(unit, STATUS_ICONS.poisoned, "top-left");
   }
 
   // Selection rectangle
@@ -518,14 +520,19 @@ const drawHealthBar = (position: { x: number; y: number }, iconSize: number, hea
   ctx.fillRect(x, y, width * ratio, height);
 };
 
-/** Hunger badge on a starving unit, pinned to the icon's top-right corner at a fixed on-screen size. */
-const drawStarvingMarker = (unit: Unit) => {
+/** Status badge pinned to an icon's corner at a fixed on-screen size, so it survives zooming. */
+const drawStatusMarker = (
+  entity: { position: { x: number; y: number }; iconSize: number },
+  icon: { name: string; color: string },
+  corner: "top-right" | "top-left",
+) => {
   if (!ctx) return;
 
   const size = 20 / camera.zoom;
-  const corner = unit.iconSize / 2;
+  const offset = entity.iconSize / 2;
+  const x = corner === "top-right" ? entity.position.x + offset : entity.position.x - offset;
 
-  drawIconSync(ctx, STATUS_ICONS.starving, { x: unit.position.x + corner, y: unit.position.y - corner }, size);
+  drawIconSync(ctx, icon, { x, y: entity.position.y - offset }, size);
 };
 
 const drawGrid = (view: Bounds) => {

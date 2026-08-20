@@ -39,6 +39,7 @@ const ENTITY_COLORS = {
 /** Status markers drawn over an entity rather than as one — preloaded so the render loop never waits. */
 export const STATUS_ICONS = {
   starving: { name: "stomach", color: "#fb923c" },
+  poisoned: { name: "poison", color: "#84cc16" },
 } as const;
 
 function resolveIconName(entity: Structure | Unit | Resource | Enemy): string {

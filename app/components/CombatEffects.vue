@@ -118,6 +118,27 @@ function fxStyle(fx: EffectSpec) {
 }
 
 /* Mordida — impacto rápido no alvo */
+/* Raio maligno — feixe roxo que aparece inteiro, em vez de viajar como uma flecha */
+.fx-magicRay {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, rgba(168, 85, 247, 0.15), #a855f7 45%, #d8b4fe 75%, #f5d0fe);
+  box-shadow:
+    0 0 8px #a855f7,
+    0 0 18px rgba(126, 34, 206, 0.75);
+  transform-origin: left center;
+  animation: fx-magicRay-anim var(--duration) ease-out forwards;
+}
+.fx-magicRay.fx-crit {
+  height: 9px;
+  filter: brightness(1.3);
+}
+@keyframes fx-magicRay-anim {
+  0% { width: 0; transform: rotate(var(--angle)); opacity: 0.2; }
+  35% { width: var(--dist); transform: rotate(var(--angle)); opacity: 1; }
+  100% { width: var(--dist); transform: rotate(var(--angle)); opacity: 0; }
+}
+
 .fx-bite {
   width: 36px;
   height: 36px;

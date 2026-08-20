@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import actionDefs from "@/data/actionDefinitions.json";
 import enemyDefs from "@/data/enemyDefinitions.json";
-import type { ActionDefinition, Combatant, LootDrop } from "@/types/Combat";
+import type { ActionDefinition, ActionLock, Combatant, LootDrop, Position } from "@/types/Combat";
 import type { Unit } from "@/types/Unit";
 import type { Enemy } from "@/types/Enemy";
 import { ResourceType } from "@/types/Resource";
@@ -11,7 +11,7 @@ import { useStructureStore } from "./structures";
 import { useResourceStore } from "./resources";
 import { useSelectionStore } from "./selection";
 import { useEffectsStore } from "./effects";
-import { distance } from "@/utils/geometry";
+import { distance, distanceToSegment } from "@/utils/geometry";
 import { pickAction, rollDamage } from "@/utils/combatEngine";
 import { SpatialGrid } from "@/utils/spatialGrid";
 
@@ -170,12 +170,109 @@ export const useCombatStore = defineStore("combat", () => {
     }
   }
 
-  function applyImpact(action: ActionDefinition, attacker: Combatant, target: Target) {
+  /**
+   * Closes the gap toward the target during the wind-up. Covering `gap * (delta / msLeft)` converges
+   * on the target by impactMs even while it keeps moving, and stops short so they don't overlap.
+   */
+  function advanceCharge(attacker: Combatant, lock: ActionLock, action: ActionDefinition, gameDeltaMs: number) {
+    const target = resolveTarget(lock.targetId, lock.targetIsStructure);
+    if (!target) return;
+
+    const msLeft = Math.max(gameDeltaMs, action.impactMs - lock.elapsedMs);
+    // Stop just inside the sweep radius, not at combatRange * 0.6 — combatRange is derived from this
+    // very action's maxRange, so using it would make the charger think it had already arrived.
+    const standoff = action.charge!.radius * 0.5;
+    const gap = distance(attacker.position, target.position) - standoff;
+    if (gap <= 0) return;
+
+    const step = Math.min(gap, (gap * gameDeltaMs) / msLeft);
+    const dx = target.position.x - attacker.position.x;
+    const dy = target.position.y - attacker.position.y;
+    const length = Math.hypot(dx, dy) || 1;
+
+    attacker.position.x += (dx / length) * step;
+    attacker.position.y += (dy / length) * step;
+  }
+
+  /** Shoves a combatant away from the charge line, perpendicular to it. */
+  function shoveFromLine(victim: Combatant, from: Position, to: Position, pushDistance: number) {
+    const lineX = to.x - from.x;
+    const lineY = to.y - from.y;
+    const length = Math.hypot(lineX, lineY) || 1;
+    // Perpendicular, flipped to point away from the line rather than through it.
+    let awayX = -lineY / length;
+    let awayY = lineX / length;
+
+    if ((victim.position.x - from.x) * awayX + (victim.position.y - from.y) * awayY < 0) {
+      awayX = -awayX;
+      awayY = -awayY;
+    }
+
+    victim.position.x += awayX * pushDistance;
+    victim.position.y += awayY * pushDistance;
+  }
+
+  /**
+   * Everything within `radius` of the line the charger travelled gets shoved; only hostiles take
+   * damage. That split is deliberate — a mammoth herd charges through its own without friendly fire.
+   */
+  function sweepCharge(action: ActionDefinition, attacker: Combatant, from: Position) {
+    const { radius, pushDistance } = action.charge!;
+    const to = attacker.position;
+    const attackerIsUnit = !!useUnitStore().getUnit(attacker.id);
+    const hostiles = attackerIsUnit ? enemyGrid : unitGrid;
+    const allies = attackerIsUnit ? unitGrid : enemyGrid;
+    const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    const reach = distance(from, to) / 2 + radius;
+
+    for (const victim of hostiles.queryRadius(midpoint.x, midpoint.y, reach)) {
+      if (victim.id === attacker.id) continue;
+      if (distanceToSegment(victim.position, from, to) > radius) continue;
+
+      const { amount, crit } = rollDamage(action, attacker.attack, victim.defense);
+
+      victim.health = Math.max(0, victim.health - amount);
+      shoveFromLine(victim, from, to, pushDistance);
+
+      if (victim.actionIds.length > 0) {
+        victim.combatTargetId = attacker.id;
+        victim.combatTargetIsStructure = false;
+      }
+
+      useEffectsStore().spawn({
+        kind: "damageNumber",
+        x: victim.position.x,
+        y: victim.position.y,
+        offsetX: (Math.random() - 0.5) * 24,
+        amount: Math.round(amount),
+        crit,
+        durationMs: 800,
+      });
+    }
+
+    for (const bystander of allies.queryRadius(midpoint.x, midpoint.y, reach)) {
+      if (bystander.id === attacker.id) continue;
+      if (distanceToSegment(bystander.position, from, to) > radius) continue;
+
+      shoveFromLine(bystander, from, to, pushDistance);
+    }
+  }
+
+  function applyImpact(action: ActionDefinition, attacker: Combatant, target: Target, origin?: Position) {
     const effectsStore = useEffectsStore();
+
+    if (action.charge) {
+      spawnActionVfx(action, origin ?? attacker.position, target);
+      sweepCharge(action, attacker, origin ?? attacker.position);
+      return;
+    }
+
     const { amount, crit } = rollDamage(action, attacker.attack, target.defense);
 
     applyDamage(target, amount);
     retaliate(target, attacker.id);
+
+    if (action.poison) applyPoison(target, action.poison);
 
     if (action.aoeRadius && !target.isStructure) {
       for (const enemy of enemyGrid.queryRadius(target.position.x, target.position.y, action.aoeRadius)) {
@@ -202,6 +299,33 @@ export const useCombatStore = defineStore("combat", () => {
     });
   }
 
+  function applyPoison(target: Target, poison: { durationMs: number; damagePerSecond: number }) {
+    if (target.isStructure) return;
+
+    const victim = useUnitStore().getUnit(target.id) ?? useEnemyStore().getEnemy(target.id);
+    if (!victim) return;
+
+    // Re-applying refreshes the timer and keeps the stronger tick, instead of stacking indefinitely.
+    victim.poison = {
+      remainingMs: Math.max(victim.poison?.remainingMs ?? 0, poison.durationMs),
+      damagePerSecond: Math.max(victim.poison?.damagePerSecond ?? 0, poison.damagePerSecond),
+    };
+  }
+
+  /**
+   * Ticks damage-over-time. Runs in its own pass over every unit and enemy, deliberately: unarmed
+   * units never reach processCombatant, so a poisoned worker would otherwise never take the damage.
+   */
+  function tickPoison(combatant: Combatant, gameDeltaMs: number) {
+    const poison = combatant.poison;
+    if (!poison) return;
+
+    combatant.health = Math.max(0, combatant.health - (poison.damagePerSecond * gameDeltaMs) / 1000);
+    poison.remainingMs -= gameDeltaMs;
+
+    if (poison.remainingMs <= 0) combatant.poison = undefined;
+  }
+
   function tickCooldowns(combatant: Combatant, gameDeltaMs: number) {
     for (const id of Object.keys(combatant.actionCooldowns)) {
       combatant.actionCooldowns[id] = Math.max(0, (combatant.actionCooldowns[id] ?? 0) - gameDeltaMs);
@@ -223,10 +347,12 @@ export const useCombatStore = defineStore("combat", () => {
       const def = ACTION_DEFS[lock.actionId];
 
       if (def) {
+        if (def.charge && !lock.impactApplied) advanceCharge(combatant, lock, def, gameDeltaMs);
+
         if (!lock.impactApplied && lock.elapsedMs >= def.impactMs) {
           lock.impactApplied = true;
           const target = resolveTarget(lock.targetId, lock.targetIsStructure);
-          if (target) applyImpact(def, combatant, target);
+          if (target) applyImpact(def, combatant, target, lock.origin);
         }
 
         if (lock.elapsedMs >= def.animationMs) combatant.actionLock = undefined;
@@ -256,6 +382,7 @@ export const useCombatStore = defineStore("combat", () => {
       targetIsStructure: target.isStructure,
       elapsedMs: 0,
       impactApplied: false,
+      origin: { ...combatant.position },
     };
   }
 
@@ -315,6 +442,10 @@ export const useCombatStore = defineStore("combat", () => {
 
     unitGrid.rebuild(mapUnits.filter((unit) => unit.health > 0));
     enemyGrid.rebuild(enemies.filter((enemy) => enemy.health > 0));
+
+    // Antes do combate: veneno atinge todo mundo, inclusive quem não tem arma e nunca passa por processCombatant.
+    for (const unit of mapUnits) tickPoison(unit, gameDeltaMs);
+    for (const enemy of enemies) tickPoison(enemy, gameDeltaMs);
 
     for (const unit of mapUnits) {
       if (unit.actionIds.length === 0) continue;

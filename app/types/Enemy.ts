@@ -44,6 +44,11 @@ export enum EnemyType {
   Tiger = "tiger",
   DustDevil = "dustDevil",
   SandWorm = "sandWorm",
+  Mammoth = "mammoth",
+  Parasaurolophus = "parasaurolophus",
+  Velociraptor = "velociraptor",
+  Scorpion = "scorpion",
+  ToadTeeth = "toadTeeth",
 }
 
 /** Where an ambient enemy type spawns — declared per-type in enemyDefinitions.json, not hardcoded per type. */
