@@ -49,6 +49,7 @@ function spawnUnit(type: UnitType, position: Position): Unit {
     baseEfficiency: def.baseEfficiency,
     efficiency: def.efficiency,
     foodPerDay: def.foodPerDay,
+    passive: (def as { passive?: boolean }).passive ?? false,
     reproductionTimeHours: def.reproductionTimeHours,
     attack: def.attack,
     defense: def.defense,
@@ -560,6 +561,7 @@ export const useUnitStore = defineStore("units", () => {
           continue;
         }
 
+        if (unit.fleeing) unit.fleeing = false;
         if (!unit.targetResource) unit.targetPosition = undefined;
       } else {
         const inLake = isInWater(unit.position.x, unit.position.y, lakesCache);

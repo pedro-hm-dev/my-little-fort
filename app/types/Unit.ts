@@ -25,6 +25,10 @@ export interface Unit {
   foodPerDay: number;
   /** Went unfed at the last day rollover — losing health each day until it eats again. */
   starving?: boolean;
+  /** A working animal: never attacks, never fights back, bolts when hit. */
+  passive?: boolean;
+  /** Currently running from something that hit it — cosmetic, cleared on arrival. */
+  fleeing?: boolean;
   reproductionTimeHours: number;
   // Fort state
   insideFortId?: string;
@@ -51,6 +55,7 @@ export enum UnitType {
   Archer = "archer",
   Hunter = "hunter",
   Miner = "miner",
+  Capybara = "capybara",
 }
 
 export interface Position {
