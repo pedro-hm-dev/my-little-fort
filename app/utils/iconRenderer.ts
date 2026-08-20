@@ -29,11 +29,12 @@ const failedIcons = new Set<string>(); // Track failed icons to avoid retries
 const DEFAULT_ICON = "sand-castle";
 
 // Color palette for different entity types
-const ENTITY_COLORS = {
+export const ENTITY_COLORS = {
   unit: "#90EE90", // Light green
   structure: "#FFFFFF", // White
   resource: "#F0E68C", // Khaki/gold
   enemy: "#ef4444", // Red — hostile
+  wildlife: "#c08552", // Brown — peaceful fauna, there to be hunted rather than feared
 } as const;
 
 /** Status markers drawn over an entity rather than as one — preloaded so the render loop never waits. */
@@ -48,8 +49,9 @@ function resolveIconName(entity: Structure | Unit | Resource | Enemy): string {
   return DEFAULT_ICON;
 }
 
-function getEntityColor(entity: Structure | Unit | Resource | Enemy): string {
-  if (isEnemy(entity)) return ENTITY_COLORS.enemy;
+/** Exported so UI outside the canvas (unit panels, tooltips) can match the map colors. */
+export function getEntityColor(entity: Structure | Unit | Resource | Enemy): string {
+  if (isEnemy(entity)) return entity.passive ? ENTITY_COLORS.wildlife : ENTITY_COLORS.enemy;
   if (isUnit(entity)) return ENTITY_COLORS.unit;
   if (isStructure(entity)) return ENTITY_COLORS.structure;
   return ENTITY_COLORS.resource;
@@ -213,7 +215,8 @@ export async function preloadAllIcons(): Promise<void> {
 
   // Collect all icon names from enemies (red), plus the carcass each one leaves behind (a resource)
   for (const enemyDef of Object.values(enemyDefinitions)) {
-    iconColorPairs.push({ name: enemyDef.iconName, color: ENTITY_COLORS.enemy });
+    const isPassive = (enemyDef as { passive?: boolean }).passive === true;
+    iconColorPairs.push({ name: enemyDef.iconName, color: isPassive ? ENTITY_COLORS.wildlife : ENTITY_COLORS.enemy });
 
     const corpseIcon = (enemyDef as { corpseIcon?: string }).corpseIcon;
     if (corpseIcon) iconColorPairs.push({ name: corpseIcon, color: ENTITY_COLORS.resource });
