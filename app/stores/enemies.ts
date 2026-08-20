@@ -324,7 +324,10 @@ export const useEnemyStore = defineStore("enemies", () => {
           }
         }
       } else if (!enemy.combatTargetId) {
-        if (enemy.behavior === "horde") {
+        if (enemy.fleeing && enemy.targetPosition) {
+          // Fugir tem prioridade sobre a vagueação ambient até chegar ao destino.
+          dest = enemy.targetPosition;
+        } else if (enemy.behavior === "horde") {
           dest = enemy.targetPosition ?? fort?.position;
         } else if (enemy.behavior === "territorial") {
           dest = territorialDestination(enemy, gameDeltaMs);
@@ -350,6 +353,7 @@ export const useEnemyStore = defineStore("enemies", () => {
       if (dist < 4) {
         enemy.position.x = dest.x;
         enemy.position.y = dest.y;
+        if (enemy.fleeing) enemy.fleeing = false;
         if (enemy.behavior === "ambient") enemy.targetPosition = undefined;
       } else {
         const inLake = isInWater(enemy.position.x, enemy.position.y, lakesCache);

@@ -245,6 +245,30 @@
     ]
   },
 
+  "capybara": {
+    "type": "capybara",
+    "label": "Capivara",
+    "iconName": "capybara",
+    "iconSize": 44,
+    "corpseIcon": "carrion",
+    "maxHealth": 60,
+    "speed": 2.2,
+    "swimSpeed": 3.4,
+    "attack": 0,
+    "defense": 0,
+    "actionIds": [],
+    "behavior": "ambient",
+    "passive": true,
+    "habitat": { "kind": "biome", "biome": "grassland" },
+    "packBiome": "grassland",
+    "packSizeRange": [2, 4],
+    "ambientCap": 8,
+    "lootTable": [
+      { "type": "meat", "chance": 1, "amount": [4, 9] },
+      { "type": "leather", "chance": 0.8, "amount": [2, 4] }
+    ]
+  },
+
   "dustDevil": {
     "type": "dustDevil",
     "label": "Diabo de Poeira",

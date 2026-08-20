@@ -10,6 +10,13 @@ export interface Enemy extends Combatant {
   aquatic?: boolean;
   /** Has no allies: attacks rival enemies as readily as player units. */
   hostileToAll?: boolean;
+  /**
+   * Wildlife that never fights: acquires no target, and bolts when hit instead of retaliating.
+   * Exists to be hunted for its loot — the base for any peaceful animal.
+   */
+  passive?: boolean;
+  /** Running from whatever just hit it — cleared on arrival. */
+  fleeing?: boolean;
   behavior: "horde" | "ambient" | "territorial";
   /** Ambient enemies wander around this anchor instead of marching on the fort. */
   homePosition?: Position;
@@ -49,6 +56,7 @@ export enum EnemyType {
   Velociraptor = "velociraptor",
   Scorpion = "scorpion",
   ToadTeeth = "toadTeeth",
+  Capybara = "capybara",
 }
 
 /** Where an ambient enemy type spawns — declared per-type in enemyDefinitions.json, not hardcoded per type. */

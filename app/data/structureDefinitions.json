@@ -7,7 +7,7 @@
     "iconName": "sand-castle",
     "iconSize": 200,
     "tabs": ["units"],
-    "canReproduce": ["worker", "soldier", "archer", "hunter", "miner", "capybara"],
+    "canReproduce": ["worker", "soldier", "archer", "hunter", "miner"],
     "maxOccupancy": 10
   }
 }
