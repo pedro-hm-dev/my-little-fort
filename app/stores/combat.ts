@@ -10,8 +10,9 @@ import { useEnemyStore } from "./enemies";
 import { useStructureStore } from "./structures";
 import { useResourceStore } from "./resources";
 import { useSelectionStore } from "./selection";
+import { useCameraStore } from "./camera";
 import { useEffectsStore } from "./effects";
-import { distance, distanceToSegment } from "@/utils/geometry";
+import { clamp, distance, distanceToSegment } from "@/utils/geometry";
 import { pickAction, rollDamage } from "@/utils/combatEngine";
 import { SpatialGrid } from "@/utils/spatialGrid";
 
@@ -27,6 +28,10 @@ const CARCASS_GATHER_TIME = 4;
 /** Carcass icon is drawn a bit smaller than the living enemy it came from. */
 const CARCASS_ICON_SCALE = 0.8;
 const DEFAULT_CORPSE_ICON = "carrion";
+
+/** How far a passive unit bolts when something hits it, and how close to the map edge it may stop. */
+const FLEE_DISTANCE = 260;
+const FLEE_MAP_MARGIN = 40;
 
 interface Target {
   id: string;
@@ -123,24 +128,60 @@ export const useCombatStore = defineStore("combat", () => {
     if (enemy) enemy.health = Math.max(0, enemy.health - amount);
   }
 
-  /** A hit combatant always turns to fight back — structures can't, and units with no weapon can't either. */
-  function retaliate(target: Target, attackerId: string) {
-    if (target.isStructure || target.id === attackerId) return;
+  /** Sends a passive unit running directly away from whatever hit it, stopping inside the map. */
+  function fleeFrom(unit: Unit, attackerId: string) {
+    const attacker = resolveTarget(attackerId, false);
+    if (!attacker) return;
 
-    const unit = useUnitStore().getUnit(target.id);
+    const camera = useCameraStore();
+    const dx = unit.position.x - attacker.position.x;
+    const dy = unit.position.y - attacker.position.y;
+    const length = Math.hypot(dx, dy) || 1;
+
+    unit.fleeing = true;
+    // Clearing the gather state is what makes the flee actually happen: updateUnitPositions handles
+    // targetResource before movement and continues, so a gathering unit would ignore the destination.
+    unit.targetResource = undefined;
+    unit.gatherProgress = undefined;
+    unit.gatherQueue = undefined;
+    unit.combatTargetId = undefined;
+    unit.combatQueue = undefined;
+    unit.targetPosition = {
+      x: clamp(unit.position.x + (dx / length) * FLEE_DISTANCE, FLEE_MAP_MARGIN, camera.mapWidth - FLEE_MAP_MARGIN),
+      y: clamp(unit.position.y + (dy / length) * FLEE_DISTANCE, FLEE_MAP_MARGIN, camera.mapHeight - FLEE_MAP_MARGIN),
+    };
+  }
+
+  /**
+   * How something responds to being hit: armed combatants turn and fight, passive units bolt away.
+   * Anything else (structures, unarmed non-passive units) absorbs it, as before.
+   */
+  function reactToHit(victimId: string, attackerId: string) {
+    if (victimId === attackerId) return;
+
+    const unit = useUnitStore().getUnit(victimId);
     if (unit) {
       if (unit.actionIds.length > 0) {
         unit.combatTargetId = attackerId;
         unit.combatTargetIsStructure = false;
+        return;
       }
+
+      if (unit.passive) fleeFrom(unit, attackerId);
       return;
     }
 
-    const enemy = useEnemyStore().getEnemy(target.id);
+    const enemy = useEnemyStore().getEnemy(victimId);
     if (enemy && enemy.actionIds.length > 0) {
       enemy.combatTargetId = attackerId;
       enemy.combatTargetIsStructure = false;
     }
+  }
+
+  function retaliate(target: Target, attackerId: string) {
+    if (target.isStructure) return;
+
+    reactToHit(target.id, attackerId);
   }
 
   function spawnActionVfx(action: ActionDefinition, attackerPos: { x: number; y: number }, target: Target) {
@@ -234,10 +275,7 @@ export const useCombatStore = defineStore("combat", () => {
       victim.health = Math.max(0, victim.health - amount);
       shoveFromLine(victim, from, to, pushDistance);
 
-      if (victim.actionIds.length > 0) {
-        victim.combatTargetId = attacker.id;
-        victim.combatTargetIsStructure = false;
-      }
+      reactToHit(victim.id, attacker.id);
 
       useEffectsStore().spawn({
         kind: "damageNumber",
@@ -280,10 +318,7 @@ export const useCombatStore = defineStore("combat", () => {
 
         const splash = rollDamage(action, attacker.attack, enemy.defense);
         enemy.health = Math.max(0, enemy.health - splash.amount);
-        if (enemy.actionIds.length > 0) {
-          enemy.combatTargetId = attacker.id;
-          enemy.combatTargetIsStructure = false;
-        }
+        reactToHit(enemy.id, attacker.id);
       }
     }
 

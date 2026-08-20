@@ -459,6 +459,7 @@ const render = () => {
     drawHealthBar(unit.position, unit.iconSize, unit.health, unit.maxHealth);
     if (unit.starving) drawStatusMarker(unit, STATUS_ICONS.starving, "top-right");
     if (unit.poison) drawStatusMarker(unit, STATUS_ICONS.poisoned, "top-left");
+    else if (unit.fleeing) drawStatusMarker(unit, STATUS_ICONS.fleeing, "top-left");
   }
 
   // Selection rectangle

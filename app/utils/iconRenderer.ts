@@ -40,6 +40,7 @@ const ENTITY_COLORS = {
 export const STATUS_ICONS = {
   starving: { name: "stomach", color: "#fb923c" },
   poisoned: { name: "poison", color: "#84cc16" },
+  fleeing: { name: "run", color: "#facc15" },
 } as const;
 
 function resolveIconName(entity: Structure | Unit | Resource | Enemy): string {
