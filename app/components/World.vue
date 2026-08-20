@@ -791,6 +791,8 @@ const handleMouseUp = (e: MouseEvent) => {
 
   const rect = selectionStore.getSelectionRect();
   const pending = unitStore.pendingReproduction;
+  // Ctrl (ou Cmd) soma à seleção em vez de substituí-la, e não limpa em clique no vazio.
+  const additive = e.ctrlKey || e.metaKey;
 
   if (rect && rect.width > 5 && rect.height > 5) {
     if (!pending) {
@@ -801,7 +803,8 @@ const handleMouseUp = (e: MouseEvent) => {
           selectedIds.push(unit.id);
         }
       }
-      selectionStore.selectUnits(selectedIds);
+      if (additive) selectionStore.addUnits(selectedIds);
+      else selectionStore.selectUnits(selectedIds);
     }
   } else {
     const world = screenToWorld(e.offsetX, e.offsetY);
@@ -828,7 +831,9 @@ const handleMouseUp = (e: MouseEvent) => {
         const dx = world.x - unit.position.x;
         const dy = world.y - unit.position.y;
         if (dx * dx + dy * dy < (unit.iconSize / 2) ** 2) {
-          selectionStore.selectUnits([unit.id]);
+          if (additive) selectionStore.toggleUnit(unit.id);
+          else selectionStore.selectUnits([unit.id]);
+
           clickedSomething = true;
           break;
         }
@@ -839,7 +844,7 @@ const handleMouseUp = (e: MouseEvent) => {
           const dx = world.x - structure.position.x;
           const dy = world.y - structure.position.y;
           if (dx * dx + dy * dy < (structure.iconSize / 2) ** 2) {
-            selectionStore.deselectAll();
+            if (!additive) selectionStore.deselectAll();
             openStructurePanel(structure);
             clickedSomething = true;
             break;
@@ -847,7 +852,7 @@ const handleMouseUp = (e: MouseEvent) => {
         }
       }
 
-      if (!clickedSomething) {
+      if (!clickedSomething && !additive) {
         selectionStore.deselectAll();
         structurePanelOpen.value = false;
       }

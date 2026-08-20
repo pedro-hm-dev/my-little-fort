@@ -32,6 +32,20 @@ export const useSelectionStore = defineStore("selection", () => {
     activeCommand.value = null;
   }
 
+  /** Adds to the current selection instead of replacing it — Ctrl+drag. */
+  function addUnits(unitIds: string[]) {
+    unitIds.forEach((id) => selectedUnitIds.value.add(id));
+    activeCommand.value = null;
+  }
+
+  /** Ctrl+click on a unit: pick it up if it isn't selected, drop it if it is. */
+  function toggleUnit(unitId: string) {
+    if (selectedUnitIds.value.has(unitId)) selectedUnitIds.value.delete(unitId);
+    else selectedUnitIds.value.add(unitId);
+
+    activeCommand.value = null;
+  }
+
   function deselectAll() {
     selectedUnitIds.value.clear();
     activeCommand.value = null;
@@ -85,6 +99,8 @@ export const useSelectionStore = defineStore("selection", () => {
     hasSelectedUnits,
     selectUnit,
     selectUnits,
+    addUnits,
+    toggleUnit,
     deselectAll,
     deselectUnit,
     isSelected,
