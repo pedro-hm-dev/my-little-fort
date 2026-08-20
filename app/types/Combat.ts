@@ -30,6 +30,11 @@ export interface Combatant {
   combatTargetIsStructure?: boolean;
   /** Active damage-over-time. Ticked in its own pass, since unarmed units skip processCombatant. */
   poison?: { remainingMs: number; damagePerSecond: number };
+  /**
+   * Being shoved. Applied over time rather than as a jump, so it reads as a push instead of a
+   * teleport: peak speed decays linearly to zero, which integrates to exactly `pushDistance`.
+   */
+  knockback?: { dirX: number; dirY: number; peakSpeed: number; remainingMs: number; totalMs: number };
 }
 
 export interface ActionLock {
@@ -82,7 +87,7 @@ export interface LootDrop {
 
 export interface EffectSpec {
   id: string;
-  kind: ActionVfx | "damageNumber" | "gatherNumber";
+  kind: ActionVfx | "damageNumber" | "gatherNumber" | "chargeSweep";
   x: number;
   y: number;
   targetX?: number;
@@ -94,4 +99,6 @@ export interface EffectSpec {
   iconName?: string;
   /** Small random horizontal jitter so simultaneous pops at the same spot don't perfectly overlap. */
   offsetX?: number;
+  /** chargeSweep only — half-width of the swept capsule, so the drawn shape matches the real hitbox. */
+  radius?: number;
 }

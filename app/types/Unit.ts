@@ -43,6 +43,8 @@ export interface Unit {
   combatTargetIsStructure?: boolean;
   /** Active damage-over-time. Ticked in its own pass, since unarmed units skip processCombatant. */
   poison?: { remainingMs: number; damagePerSecond: number };
+  /** Being shoved over time — see Combatant.knockback. */
+  knockback?: { dirX: number; dirY: number; peakSpeed: number; remainingMs: number; totalMs: number };
   /** Remaining enemy ids to engage in order, after combatTargetId, from an area-attack command. */
   combatQueue?: string[];
 }

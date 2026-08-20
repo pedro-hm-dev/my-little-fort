@@ -39,6 +39,7 @@ function fxStyle(fx: EffectSpec) {
     top: `${fx.y}px`,
     "--angle": `${angle}deg`,
     "--dist": `${dist}px`,
+    "--radius": `${fx.radius ?? 0}px`,
     "--duration": `${fx.durationMs}ms`,
   };
 }
@@ -118,6 +119,30 @@ function fxStyle(fx: EffectSpec) {
 }
 
 /* Mordida — impacto rápido no alvo */
+/*
+ * Rastro da investida — desenha a cápsula exata que o dano varre: um retângulo do ponto de partida
+ * ao de chegada, com meia-largura igual ao radius, e pontas arredondadas. Como o dano usa
+ * distanceToSegment contra o mesmo radius, o que aparece é literalmente a hitbox.
+ */
+.fx-chargeSweep {
+  width: calc(var(--dist) + var(--radius) * 2);
+  height: calc(var(--radius) * 2);
+  margin-left: calc(var(--radius) * -1);
+  margin-top: calc(var(--radius) * -1);
+  border-radius: 9999px;
+  transform-origin: var(--radius) center;
+  transform: rotate(var(--angle));
+  background: radial-gradient(ellipse at center, rgba(251, 191, 36, 0.28), rgba(217, 119, 6, 0.14) 70%, rgba(217, 119, 6, 0));
+  border: 2px solid rgba(251, 191, 36, 0.55);
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.35) inset;
+  animation: fx-chargeSweep-anim var(--duration) ease-out forwards;
+}
+@keyframes fx-chargeSweep-anim {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
 /* Raio maligno — feixe roxo que aparece inteiro, em vez de viajar como uma flecha */
 .fx-magicRay {
   height: 6px;

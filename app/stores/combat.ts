@@ -33,6 +33,9 @@ const DEFAULT_CORPSE_ICON = "carrion";
 const FLEE_DISTANCE = 260;
 const FLEE_MAP_MARGIN = 40;
 
+/** How long a shove takes to play out. Short enough to read as an impact, long enough to see. */
+const KNOCKBACK_DURATION_MS = 320;
+
 interface Target {
   id: string;
   isStructure: boolean;
@@ -234,7 +237,10 @@ export const useCombatStore = defineStore("combat", () => {
     attacker.position.y += (dy / length) * step;
   }
 
-  /** Shoves a combatant away from the charge line, perpendicular to it. */
+  /**
+   * Schedules a shove away from the charge line, perpendicular to it. The movement itself happens in
+   * tickKnockback over KNOCKBACK_DURATION_MS — setting position here made it look like a teleport.
+   */
   function shoveFromLine(victim: Combatant, from: Position, to: Position, pushDistance: number) {
     const lineX = to.x - from.x;
     const lineY = to.y - from.y;
@@ -248,8 +254,31 @@ export const useCombatStore = defineStore("combat", () => {
       awayY = -awayY;
     }
 
-    victim.position.x += awayX * pushDistance;
-    victim.position.y += awayY * pushDistance;
+    // Peak speed decays linearly to zero, so the integral over the duration is exactly pushDistance.
+    victim.knockback = {
+      dirX: awayX,
+      dirY: awayY,
+      peakSpeed: (2 * pushDistance) / KNOCKBACK_DURATION_MS,
+      remainingMs: KNOCKBACK_DURATION_MS,
+      totalMs: KNOCKBACK_DURATION_MS,
+    };
+  }
+
+  /** Advances an in-progress shove. Runs for every unit and enemy, like the poison pass. */
+  function tickKnockback(combatant: Combatant, gameDeltaMs: number) {
+    const knockback = combatant.knockback;
+    if (!knockback) return;
+
+    const camera = useCameraStore();
+    const elapsedFraction = 1 - knockback.remainingMs / knockback.totalMs;
+    const speed = knockback.peakSpeed * (1 - elapsedFraction);
+    const step = speed * Math.min(gameDeltaMs, knockback.remainingMs);
+
+    combatant.position.x = clamp(combatant.position.x + knockback.dirX * step, 0, camera.mapWidth);
+    combatant.position.y = clamp(combatant.position.y + knockback.dirY * step, 0, camera.mapHeight);
+    knockback.remainingMs -= gameDeltaMs;
+
+    if (knockback.remainingMs <= 0) combatant.knockback = undefined;
   }
 
   /**
@@ -299,8 +328,19 @@ export const useCombatStore = defineStore("combat", () => {
     const effectsStore = useEffectsStore();
 
     if (action.charge) {
-      spawnActionVfx(action, origin ?? attacker.position, target);
-      sweepCharge(action, attacker, origin ?? attacker.position);
+      const from = origin ?? attacker.position;
+
+      effectsStore.spawn({
+        kind: "chargeSweep",
+        x: from.x,
+        y: from.y,
+        targetX: attacker.position.x,
+        targetY: attacker.position.y,
+        radius: action.charge.radius,
+        durationMs: 420,
+      });
+      spawnActionVfx(action, from, target);
+      sweepCharge(action, attacker, from);
       return;
     }
 
@@ -478,8 +518,14 @@ export const useCombatStore = defineStore("combat", () => {
     enemyGrid.rebuild(enemies.filter((enemy) => enemy.health > 0));
 
     // Antes do combate: veneno atinge todo mundo, inclusive quem não tem arma e nunca passa por processCombatant.
-    for (const unit of mapUnits) tickPoison(unit, gameDeltaMs);
-    for (const enemy of enemies) tickPoison(enemy, gameDeltaMs);
+    for (const unit of mapUnits) {
+      tickPoison(unit, gameDeltaMs);
+      tickKnockback(unit, gameDeltaMs);
+    }
+    for (const enemy of enemies) {
+      tickPoison(enemy, gameDeltaMs);
+      tickKnockback(enemy, gameDeltaMs);
+    }
 
     for (const unit of mapUnits) {
       if (unit.actionIds.length === 0) continue;
