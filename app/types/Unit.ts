@@ -1,3 +1,4 @@
+import type { ResourceType } from "@/types/Resource";
 import type { ActionLock } from "@/types/Combat";
 
 export interface Unit {
@@ -47,6 +48,13 @@ export interface Unit {
   knockback?: { dirX: number; dirY: number; peakSpeed: number; remainingMs: number; totalMs: number };
   /** Remaining enemy ids to engage in order, after combatTargetId, from an area-attack command. */
   combatQueue?: string[];
+  // Construction and hauling state (see PLANS.md section 12)
+  /** Building site this unit is working. It fetches materials for it, then raises it. */
+  buildTargetId?: string;
+  /** Material in hand, on its way to the site. */
+  hauling?: { type: ResourceType; amount: number };
+  /** Storage this unit is walking to in order to pick material up. */
+  haulSourceId?: string;
   // Navigation state (Navigable contract — see stores/navigation.ts)
   path?: Position[];
   pathGoal?: Position;

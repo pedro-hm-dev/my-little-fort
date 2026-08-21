@@ -1,7 +1,8 @@
 import { ref } from "vue";
 import { defineStore } from "pinia";
+import type { StructureType } from "@/types/Structure";
 
-export type ActiveCommand = "move" | "attack" | "shelter" | "gather" | null;
+export type ActiveCommand = "move" | "attack" | "shelter" | "gather" | "build" | null;
 
 export const useSelectionStore = defineStore("selection", () => {
   const selectedUnitIds = ref<Set<string>>(new Set());
@@ -12,8 +13,17 @@ export const useSelectionStore = defineStore("selection", () => {
   /** Armed action-bar command awaiting a target click on the map ("move" / "attack"). */
   const activeCommand = ref<ActiveCommand>(null);
 
+  /** Structure type picked in the build menu, waiting for a map click to drop its site. */
+  const placementType = ref<StructureType | null>(null);
+
   function setActiveCommand(command: ActiveCommand) {
     activeCommand.value = command;
+    if (command !== null) placementType.value = null;
+  }
+
+  function setPlacementType(type: StructureType | null) {
+    placementType.value = type;
+    if (type !== null) activeCommand.value = null;
   }
 
   function hasSelectedUnits(): boolean {
@@ -95,7 +105,9 @@ export const useSelectionStore = defineStore("selection", () => {
     selectionStart,
     selectionEnd,
     activeCommand,
+    placementType,
     setActiveCommand,
+    setPlacementType,
     hasSelectedUnits,
     selectUnit,
     selectUnits,

@@ -3,7 +3,7 @@
     <!-- Units inside fort -->
     <div v-if="inFort.length > 0" class="px-4 pt-4 pb-2 space-y-2">
       <p class="text-xs text-green-800 uppercase tracking-widest mb-2 flex items-baseline justify-between">
-        <span>No forte</span>
+        <span>Dentro</span>
         <span v-if="maxOccupancy !== undefined" class="text-green-700">{{ inFort.length }} / {{ maxOccupancy }}</span>
       </p>
       <div
@@ -54,10 +54,14 @@
       </div>
     </div>
 
-    <div v-if="inFort.length > 0" class="mx-4 border-t border-green-900/40 my-1" />
+    <div v-if="inFort.length > 0 && canReproduce.length > 0" class="mx-4 border-t border-green-900/40 my-1" />
+
+    <div v-if="inFort.length === 0 && canReproduce.length === 0" class="px-4 py-4 text-xs text-green-800 uppercase tracking-widest">
+      Ninguém dentro
+    </div>
 
     <!-- Recruitable unit types -->
-    <div class="px-4 pb-4 pt-3 space-y-1.5">
+    <div v-if="canReproduce.length > 0" class="px-4 pb-4 pt-3 space-y-1.5">
       <p class="text-xs text-green-800 uppercase tracking-widest mb-3 flex items-baseline justify-between">
         <span>Recrutar</span>
         <span v-if="isFull" class="text-red-800">Lotado</span>

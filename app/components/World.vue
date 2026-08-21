@@ -77,6 +77,8 @@
       </div>
     </Transition>
 
+    <BuildMenu />
+
     <!-- Structure panel (mounted once, shown on demand) -->
     <StructurePanel
       v-if="structurePanelOpen && selectedStructure"
@@ -122,8 +124,9 @@ import { useCameraStore } from "@/stores/camera";
 import { useTimeStore, type TimeSpeed } from "@/stores/time";
 import { useInventoryStore } from "@/stores/inventory";
 import { useWorldStore } from "@/stores/world";
-import { useStructureStore } from "@/stores/structures";
+import { useStructureStore, structureDefinitionOf } from "@/stores/structures";
 import { useNavigationStore } from "@/stores/navigation";
+import BuildMenu from "@/components/BuildMenu.vue";
 import { useResourceStore } from "@/stores/resources";
 import { useUnitStore } from "@/stores/units";
 import { useEnemyStore } from "@/stores/enemies";
@@ -187,6 +190,10 @@ const pendingUnitLabel = computed(() => {
 });
 
 const activeCommandHint = computed(() => {
+  const placing = selectionStore.placementType;
+  if (placing) return `Clique no mapa para marcar o canteiro: ${structureDefinitionOf(placing)?.label ?? placing}`;
+
+  if (selectionStore.activeCommand === "build") return "Clique em um canteiro para trabalhar nele";
   if (selectionStore.activeCommand === "move") return "Clique no mapa para mover";
   if (selectionStore.activeCommand === "attack") return "Clique em um inimigo ou arraste uma área para atacar em fila";
   if (selectionStore.activeCommand === "shelter") return "Clique em uma estrutura com capacidade para abrigar";
@@ -224,6 +231,9 @@ function toggleResourcePanel() {
 }
 
 function openStructurePanel(structure: Structure) {
+  // A building site has nothing to show and no tabs to fill.
+  if (structure.construction) return;
+
   selectedStructure.value = structure;
   structurePanelOpen.value = true;
 }
@@ -425,6 +435,11 @@ const render = () => {
   for (const structure of structures) {
     if (!circleOnScreen(structure.position.x, structure.position.y, structure.iconSize / 2, view)) continue;
 
+    if (structure.construction) {
+      drawBuildingSite(structure);
+      continue;
+    }
+
     drawEntityIconSync(ctx, structure, structure.position, { size: structure.iconSize });
     drawHealthBar(structure.position, structure.iconSize, structure.health, structure.maxHealth);
   }
@@ -555,6 +570,49 @@ const drawHealthBar = (position: { x: number; y: number }, iconSize: number, hea
   ctx.fillRect(x, y, width * ratio, height);
 };
 
+/**
+ * A site reads as a ghost of what it will become: the icon faded behind a dashed outline, with a bar
+ * that fills with delivered material first and then with the raising itself.
+ */
+const drawBuildingSite = (structure: Structure) => {
+  if (!ctx || !structure.construction) return;
+
+  const half = structure.iconSize / 2;
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  drawEntityIconSync(ctx, structure, structure.position, { size: structure.iconSize });
+  ctx.restore();
+
+  ctx.save();
+  ctx.strokeStyle = "#fbbf24";
+  ctx.lineWidth = 1.5 / camera.zoom;
+  ctx.setLineDash([8 / camera.zoom, 6 / camera.zoom]);
+  ctx.strokeRect(structure.position.x - half, structure.position.y - half, structure.iconSize, structure.iconSize);
+  ctx.restore();
+
+  const owed = Object.values(structure.construction.pending).reduce((total, amount) => total + (amount ?? 0), 0);
+  const stocked = owed === 0;
+  const ratio = stocked ? structure.construction.progress : 1 - owed / totalBuildCost(structure.type);
+  const width = structure.iconSize * 0.8;
+  const height = 5 / camera.zoom;
+  const x = structure.position.x - width / 2;
+  const y = structure.position.y - half - height - 6 / camera.zoom;
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.fillRect(x - 1, y - 1, width + 2, height + 2);
+  ctx.fillStyle = "#3f3f46";
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = stocked ? "#fbbf24" : "#60a5fa";
+  ctx.fillRect(x, y, width * Math.max(0, Math.min(1, ratio)), height);
+};
+
+function totalBuildCost(type: string): number {
+  const cost = structureDefinitionOf(type)?.buildCost ?? {};
+
+  return Math.max(1, Object.values(cost).reduce((total, amount) => total + (amount ?? 0), 0));
+}
+
 /** Status badge pinned to an icon's corner at a fixed on-screen size, so it survives zooming. */
 const drawStatusMarker = (
   entity: { position: { x: number; y: number }; iconSize: number },
@@ -660,6 +718,11 @@ const handleKeyDown = (e: KeyboardEvent) => {
     if (selectedStructure.value) structurePanelOpen.value = true;
     return;
   }
+  if (e.key === "Escape" && selectionStore.placementType) {
+    selectionStore.setPlacementType(null);
+    return;
+  }
+
   if (e.key === "Escape" && selectionStore.activeCommand) {
     selectionStore.setActiveCommand(null);
     return;
@@ -745,6 +808,18 @@ const handleMouseUp = (e: MouseEvent) => {
   if (e.button !== 0) return;
   if (!selectionStore.isSelecting) return;
 
+  const placing = selectionStore.placementType;
+  if (placing) {
+    const world = screenToWorld(e.offsetX, e.offsetY);
+    const site = structureStore.placeBlueprint(placing, world);
+
+    if (site) pingEffect.value = { x: world.x, y: world.y, startTime: Date.now(), duration: 800 };
+
+    selectionStore.setPlacementType(null);
+    selectionStore.endSelection();
+    return;
+  }
+
   const command = selectionStore.activeCommand;
   if (command) {
     const world = screenToWorld(e.offsetX, e.offsetY);
@@ -784,6 +859,21 @@ const handleMouseUp = (e: MouseEvent) => {
         }
         if (clickedEnemy) unitStore.attackTarget(ids, clickedEnemy.id);
       }
+    } else if (command === "build") {
+      let clickedSite = null;
+
+      for (const structure of structureStore.allStructures) {
+        if (!structure.construction) continue;
+
+        const dx = world.x - structure.position.x;
+        const dy = world.y - structure.position.y;
+        if (dx * dx + dy * dy < (structure.iconSize / 2) ** 2) {
+          clickedSite = structure;
+          break;
+        }
+      }
+
+      if (clickedSite) unitStore.buildStructure(ids, clickedSite.id);
     } else if (command === "gather") {
       if (isAreaDrag && dragRect) {
         const resourceIds = resourceStore.allResources

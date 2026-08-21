@@ -7,8 +7,143 @@
     "iconName": "sand-castle",
     "iconSize": 200,
     "solidRadius": 70,
-    "tabs": ["units"],
-    "canReproduce": ["worker", "soldier", "archer", "hunter", "miner"],
-    "maxOccupancy": 10
+    "tabs": [
+      "units",
+      "storage"
+    ],
+    "canReproduce": [
+      "worker",
+      "soldier",
+      "archer",
+      "hunter",
+      "miner"
+    ],
+    "maxOccupancy": 10,
+    "category": "core",
+    "housing": 10,
+    "storage": 400,
+    "storageKind": "all"
+  },
+  "house": {
+    "type": "house",
+    "label": "Casa",
+    "description": "Lar de uma família. Abriga poucas unidades, mas é onde elas se reproduzem.",
+    "maxHealth": 160,
+    "iconName": "family-house",
+    "iconSize": 90,
+    "solidRadius": 30,
+    "category": "housing",
+    "buildCost": {
+      "wood": 30,
+      "stone": 10,
+      "plantFiber": 15
+    },
+    "buildTimeHours": 5,
+    "housing": 4,
+    "tabs": [
+      "units"
+    ],
+    "canReproduce": [
+      "worker",
+      "soldier",
+      "archer",
+      "hunter",
+      "miner"
+    ],
+    "maxOccupancy": 4
+  },
+  "shelter": {
+    "type": "shelter",
+    "label": "Abrigo",
+    "description": "Barracão coletivo. Cabe muita gente e sai barato, mas ninguém constrói família aqui.",
+    "maxHealth": 220,
+    "iconName": "barracks-tent",
+    "iconSize": 120,
+    "solidRadius": 44,
+    "category": "housing",
+    "buildCost": {
+      "wood": 45,
+      "plantFiber": 40
+    },
+    "buildTimeHours": 4,
+    "housing": 12,
+    "tabs": [
+      "units"
+    ],
+    "occupants": [
+      "worker",
+      "soldier",
+      "archer",
+      "hunter",
+      "miner"
+    ],
+    "maxOccupancy": 12
+  },
+  "stockpile": {
+    "type": "stockpile",
+    "label": "Estoque",
+    "description": "Pilhas a céu aberto. Guarda muito, menos o que estraga.",
+    "maxHealth": 120,
+    "iconName": "stockpiles",
+    "iconSize": 110,
+    "solidRadius": 0,
+    "category": "storage",
+    "buildCost": {
+      "wood": 20,
+      "plantFiber": 10
+    },
+    "buildTimeHours": 2,
+    "storage": 300,
+    "storageKind": "nonEdible",
+    "tabs": [
+      "storage"
+    ]
+  },
+  "shed": {
+    "type": "shed",
+    "label": "Galpão",
+    "description": "Coberto e fechado: guarda de tudo, inclusive comida.",
+    "maxHealth": 200,
+    "iconName": "barn",
+    "iconSize": 110,
+    "solidRadius": 40,
+    "category": "storage",
+    "buildCost": {
+      "wood": 50,
+      "stone": 15,
+      "plantFiber": 25
+    },
+    "buildTimeHours": 6,
+    "storage": 250,
+    "storageKind": "all",
+    "tabs": [
+      "storage"
+    ]
+  },
+  "forge": {
+    "type": "forge",
+    "label": "Forja",
+    "description": "Sem ninguém dentro, é só uma bigorna fria. Cada trabalhador a mais acelera o trabalho.",
+    "maxHealth": 260,
+    "iconName": "anvil",
+    "iconSize": 95,
+    "solidRadius": 34,
+    "category": "production",
+    "buildCost": {
+      "wood": 40,
+      "stone": 60,
+      "metal": 20
+    },
+    "buildTimeHours": 8,
+    "workerSlots": 3,
+    "tabs": [
+      "units",
+      "work"
+    ],
+    "occupants": [
+      "worker",
+      "miner"
+    ],
+    "maxOccupancy": 3
   }
 }

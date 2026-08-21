@@ -658,78 +658,74 @@ A geometria foi **medida no browser**, porque `calc()` com margem negativa e `tr
 
 ---
 
-## 12. Sistema de construção — PLANEJADO (base de 13, 14 e 15)
+## 12. Sistema de construção — IMPLEMENTADO (base de 13, 14 e 15)
 
-Hoje só existe o `fort`, criado no `initialize`. Nada é construído em jogo.
+O jogo saiu do "só existe o forte": há um menu de construção, canteiro de obra, transporte de material por unidade e cinco estruturas novas. O fluxo é o do Banished — marca-se o canteiro, os trabalhadores buscam o material onde ele está e só então erguem a obra.
 
-### Modelo
+### Recurso novo: fibra vegetal
 
-`structureDefinitions.json` ganha por def:
+`plantFiber` entrou como matéria-prima de construção, com duas fontes:
 
-```jsonc
-"house": {
-  "buildCost": { "wood": 40, "stone": 20 },
-  "buildTimeHours": 6,          // escalado pela eficiência de quem constrói
-  "category": "housing",         // agrupa no menu de construção
-  "housing": 4                   // ver seção 14
-}
-```
+- **Mato** (`high-grass`) em aglomerados por grassland e floresta, nunca no deserto nem na montanha. ~35 nós por mundo, 14 de fibra por nó.
+- **Rendimento secundário** de material vegetal: árvore dá fibra em 30% das coletas, alga em 45%. Rolado por tique de coleta, em cima do recurso próprio, via `secondaryYield` na definição do recurso — qualquer recurso pode ganhar um secundário agora.
 
-`Structure` ganha estado de obra:
+### As cinco estruturas
 
-```ts
-construction?: {
-  /** O que ainda falta ser entregue no canteiro. */
-  pending: Partial<Record<ResourceType, number>>;
-  /** Progresso de 0 a 1, avançado por quem está trabalhando na obra. */
-  progress: number;
-};
-```
+| Estrutura | Categoria | O que faz | Custo |
+| --- | --- | --- | --- |
+| Casa | housing | 4 de moradia, 4 de ocupação, **é onde se reproduz** | 30 madeira, 10 pedra, 15 fibra |
+| Abrigo | housing | 12 de moradia e 12 de ocupação, **sem reprodução** | 45 madeira, 40 fibra |
+| Estoque | storage | 300 de espaço, **recusa comida** | 20 madeira, 10 fibra |
+| Galpão | storage | 250 de espaço, aceita tudo | 50 madeira, 15 pedra, 25 fibra |
+| Forja | production | 3 vagas de trabalho; parada sem ninguém dentro | 40 madeira, 60 pedra, 20 metal |
 
-Uma estrutura com `construction` desenha como canteiro, não funciona (não abriga, não estoca, não crafta) e tem vida reduzida.
+A diferença casa/abrigo já tem consequência mecânica: **só a casa deixa reproduzir**. O abrigo é barato e cabe muita gente, mas não faz família. Isso é o gancho do sistema de conforto (seção 22) sem depender dele.
 
-### Fluxo
+### O estoque tem posição física, como decidido
 
-1. Jogador escolhe no **menu de construção** e clica no mapa → nasce o canteiro com `pending` = custo cheio.
-2. Trabalhadores **buscam os recursos onde eles estão** e os levam ao canteiro. Isso exige `Unit.hauling?: { type: ResourceType; amount: number; toStructureId: string }` e um estado de transporte novo.
-3. Com o `pending` zerado, quem estiver no canteiro avança `progress` a uma taxa proporcional à **eficiência**, do mesmo jeito que a coleta já faz (`unit.efficiency / gatherTime`).
+`inventoryStore` deixou de ser um pote global e virou **visão agregada** sobre `Structure.inventory`. Todo item está no inventário de alguma estrutura; o store soma tudo para a UI continuar respondendo "quanto a colônia tem".
 
-Reusa bastante do que existe: o pipeline de "andar até um ponto e acumular progresso" do gather, o hit-test de clique do `World.vue`, o spatial grid para achar a origem mais próxima, e o `ActionBar` para o comando.
+- **Depositar escolhe destino.** `addResource(type, amount, near?)` procura o estoque **mais próximo** que aceita o tipo e tem espaço, transbordando para o próximo. Coleta e saque de ninho passam a posição de quem coletou, então o material vai para o depósito mais perto — o que dá razão de existir para construir um estoque longe do forte.
+- **Estoque a céu aberto recusa comida** (`storageKind: "nonEdible"`), então comida sempre acaba no forte ou no galpão.
+- **Retirar tira de onde está**, do depósito mais próximo primeiro.
+- **Canteiro não é estoque nem moradia**: `readyStructures` filtra obra em andamento, e `housingCapacity`/`storageCapacity` só contam prontas.
 
-### O estoque tem posição física (decidido)
+### O fluxo da obra
 
-**Todo item está sempre no inventário de alguém** — de uma unidade ou de uma estrutura. Não existe mais um pote global abstrato. O `inventoryStore` de hoje, um `Map` global, deixa de ser a fonte da verdade e passa a ser uma **visão agregada**: a soma dos inventários locais, para a UI continuar mostrando "quanto tenho no total".
+1. Menu de construção (`BuildMenu.vue`) → clique no mapa → `placeBlueprint` cria a estrutura com `construction.pending` = custo cheio e **25% da vida**. Pode-se marcar canteiro sem ter o material; ele fica esperando, como no Banished.
+2. Comando **Construir** na barra de ações → clique no canteiro → as unidades recebem `buildTargetId`.
+3. Cada unidade, por frame: se tem carga, leva ao canteiro e abate da dívida; se o canteiro ainda deve algo, vai ao depósito mais próximo que tenha aquele material e pega até 12 por viagem; se está tudo entregue, ergue a obra a `efficiency / buildTimeHours`.
+4. `pending` zerado e `progress` em 1 → a estrutura perde o canteiro e volta à vida cheia.
 
-Consequências, e nenhuma é pequena:
+Qualquer outra ordem cancela a obra e **devolve a carga ao estoque** em vez de evaporar com ela. Sem material em lugar nenhum, o construtor espera no canteiro em vez de sair andando.
 
-- **Coletar deixa de creditar direto.** Hoje `updateUnitPositions` faz `inventoryStore.addResource(collected, 1)` no instante da coleta. Passa a depositar no inventário **da unidade**, que tem capacidade — e a unidade precisa **entregar** num armazém quando lotar. Esse é o mesmo transporte que a construção usa, então vale construir um só.
-- **Gastar recurso deixa de ser instantâneo.** Construir, reproduzir e craftar hoje debitam um número global. Passam a exigir que o recurso **exista em algum lugar** e seja levado até onde é consumido.
-- **Roteamento.** Um trabalhador que precisa de 40 de madeira tem de escolher de qual depósito tirar. O `SpatialGrid` já resolve "o mais próximo"; o que não é trivial é quando nenhum depósito sozinho tem o suficiente e a carga precisa vir de dois.
-- **A conversão em prestígio (seção 16)** passa a somar os inventários locais, e vale decidir se o que estava carregado por uma unidade morta conta.
+### Detalhes que valem lembrar
 
-Isso encarece a seção 12 de forma significativa, mas é a decisão do jogo: logística é gameplay, não contabilidade.
+- **Canteiro é atravessável.** `solidRadius` só é estampado na grade de navegação para `readyStructures` — senão o construtor não chegaria na própria obra.
+- **Canteiro não abre painel** e não aceita ocupante: não é prédio ainda.
+- **Ocupante deixou de ser `canReproduce`.** Quem pode entrar agora vem de `occupants ?? canReproduce`, porque o abrigo e a forja aceitam gente sem serem locais de reprodução. A forja aceita só trabalhador e mineiro.
+- **`solidRadiusOf` saiu para `stores/structures.ts`** e é compartilhado com navegação e combate.
 
-### Estruturas propostas
+### Rendimento por trabalhador
 
-| Estrutura | Categoria | Serve para |
-| --------- | --------- | ---------- |
-| Casa | housing | Aumenta o teto de população (seção 14) |
-| Armazém | storage | Aumenta o teto de inventário (seção 13) |
-| Fazenda | production | Comida sem depender de coleta no mapa |
-| Muralha | defense | Bloqueio; exige colisão, que o jogo **não tem** hoje |
-| Forja | crafting | Fabrica equipamento (seção 15) |
+`workerEfficiencyAt(structureId)`: **zero sem ninguém dentro**, e cada trabalhador a mais soma 60% do anterior — 1 trabalhador 1,00x, 2 dão 1,60x, 3 dão 1,96x. Ordena por eficiência antes de aplicar o decaimento, então o melhor conta cheio. A aba **Trabalho** do painel mostra isso e diz "Parada" quando está vazia.
 
-**A muralha depende da seção 20 (pathfinding)** e não deve ser tentada antes: unidades e inimigos hoje andam em linha reta atravessando tudo. As outras quatro estruturas não bloqueiam passagem e podem vir antes.
+A forja ainda não produz nada: o crafting depende do inventário das unidades (seção 15). O que existe é a regra, testada e visível.
+
+### O que ficou de fora, de propósito
+
+- **Teto de estoque não é obrigatório ainda.** A capacidade é somada e mostrada (`700` com forte + estoque), e o roteamento respeita espaço livre, mas quando **tudo** está cheio o excedente ainda entra no forte em vez de sumir — perder recurso coletado é decisão da seção 13, não deste sistema. Hoje o painel pode mostrar `840 / 700`.
+- **Teto de população não é aplicado.** `housingCapacity` já existe e soma certo; quem barra a reprodução é a seção 14.
+- **Unidade não carrega para coletar.** A coleta continua creditando na hora (no depósito mais próximo). Carga e slots são a seção 15; o transporte de obra já é o mesmo mecanismo que ela vai reusar.
+- **Muralha não entrou.** Agora é possível (seção 20 está feita), mas `stampCircle` é círculo e muralha é segmento.
 
 ---
 
 ## 13. Limite de inventário por estrutura — PLANEJADO (depende de 12)
 
-`inventoryStore` hoje não tem teto: `addResource` sempre aceita.
+Metade já existe depois da seção 12: `storage` e `storageKind` estão nas definições, `inventoryStore.capacity` soma o `storage` das estruturas prontas, o painel mostra ocupação por estrutura e o roteamento de depósito respeita espaço livre por estoque.
 
-- `structureDefinitions.json` ganha `storage: number` (forte e armazém).
-- `inventoryStore.capacity` = soma de `storage` das estruturas **prontas** (canteiro não conta).
-- `addResource` passa a respeitar o teto.
+**O que falta é só o teto ser obrigatório.** Hoje, quando todo estoque está cheio, o excedente ainda entra no forte — o painel chega a mostrar `840 / 700`. Fechar isso é a decisão abaixo.
 
 **Decisão aberta — o que acontece ao encher?** As opções mudam o feel: a coleta para sozinha (menos frustrante, mas exige feedback claro de por que os workers pararam), o excedente é descartado (simples e cruel), ou o recurso fica no chão como carcaça (reusa a seção 3b inteira, e é o mais interessante).
 
@@ -741,7 +737,7 @@ Outra: o teto é **global** ou **por tipo de recurso**? Global é mais simples; 
 
 Cuidado com um nome já ocupado: **`maxOccupancy: 10` já existe** no forte, mas significa *quantos caibam dentro do abrigo* — é usado por `structureOccupancy` e `shelterUnitsAt`. O que falta é diferente: **quantas unidades o jogador pode ter no total**. Usar o mesmo campo para as duas coisas vai confundir; sugiro **`housing`** para o novo.
 
-- `populationCap` = soma de `housing` das estruturas prontas. Forte dá 10; cada casa soma.
+- `populationCap` = soma de `housing` das estruturas prontas. **Já existe** como `structureStore.housingCapacity` desde a seção 12: forte dá 10, casa 4, abrigo 12. Falta alguém obedecer.
 - `startReproduction` (`app/stores/units.ts`) passa a recusar quando `allUnits.length >= populationCap`. É o ponto único por onde unidade nova entra no jogo, então basta ali.
 - O `UnitsTab.vue` já mostra `inFort.length / maxOccupancy`; ganha uma linha de população total, e o botão de reproduzir desabilita com o motivo visível ("sem moradia").
 
@@ -774,6 +770,8 @@ Definições novas em `app/data/itemDefinitions.json`: slot, modificadores, rece
 ---
 
 ## 16. Pontuação, prestígio e rogue-lite — PLANEJADO
+
+**Fibra vegetal** entra como recurso simples (2 pontos), junto de madeira e pedra.
 
 Store nova `app/stores/prestige.ts`, **persistente entre partidas** (localStorage) — é o único estado do jogo que sobrevive à morte.
 
@@ -961,6 +959,22 @@ Lagos e rios continuam independentes das fronteiras, gerados por cima. Podem pas
 
 ---
 
+## 22. Conforto — PLANEJADO (motivo para casa em vez de abrigo)
+
+Hoje a diferença entre casa e abrigo é binária: **casa deixa reproduzir, abrigo não**. Funciona como gancho, mas é grosseiro — o abrigo cabe 12 por 85 de material e a casa cabe 4 por 55, então a conta favorece abrigo para tudo que não seja crescer a população.
+
+A ideia é um **conforto por unidade**, derivado de onde ela dorme e do que existe em volta, mexendo em coisas que já existem:
+
+- **Velocidade de reprodução** (`reproductionTimeHours`) escala com o conforto do lar, em vez de reprodução ser um sim/não.
+- **Cura no abrigo** (hoje 1% da vida por hora de jogo, em `updateFortUnits`) escala com o conforto.
+- Talvez **consumo de comida** ou moral em combate, mas isso mistura sistemas; começar pelos dois de cima.
+
+Fontes de conforto plausíveis: tipo da estrutura, quanto dela está ocupado (superlotação penaliza), estruturas próximas, e no futuro mobília construída dentro. O abrigo continua útil como solução de emergência e para população que só precisa de teto.
+
+Decisão aberta: conforto é **por unidade** (cada uma carrega o seu, mais fiel ao Banished) ou **por estrutura** (mais simples, mas não modela superlotação de graça)?
+
+---
+
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
@@ -974,9 +988,9 @@ Lagos e rios continuam independentes das fronteiras, gerados por cima. Podem pas
 8. **Taxa e cap por instância de habitat** (seção 8) — FEITO.
 10. **Alcance derivado** (seção 10) — FEITO.
 11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
-12. **Construção** (seção 12) — base de 13, 14 e 15. Estoque **tem** posição física, o que encarece bastante.
-13. **Teto de inventário** (seção 13) — depende de 12.
-14. **Teto de população** (seção 14) — depende de 12; cuidado para não reusar `maxOccupancy`.
+12. **Construção** (seção 12) — FEITO. Canteiro, transporte, cinco estruturas, estoque com posição física e fibra vegetal.
+13. **Teto de inventário** (seção 13) — quase tudo pronto na 12; falta o teto ser obrigatório.
+14. **Teto de população** (seção 14) — `housingCapacity` já existe; falta `startReproduction` obedecer.
 15. **Inventário e equipamento das unidades** (seção 15) — depende de 12; o `baseAttack`/`baseDefense` já existe (seção 19).
 16. **Prestígio e rogue-lite** (seção 16) — independente das outras; a tela de meta-progressão é a maior peça.
 17. **Painel de unidades** (seção 17) — independente, e todo o estado necessário já existe.
@@ -984,6 +998,7 @@ Lagos e rios continuam independentes das fronteiras, gerados por cima. Podem pas
 19. **Base/efetivo em ataque e armadura** (seção 19) — FEITO. Pré-requisito de 15.
 20. **Pathfinding** (seção 20) — FEITO. Grade de bloqueio, A\* com suavização, forte é o primeiro corpo sólido.
 21. **Biomas cobrindo o mapa** (seção 21) — FEITO. Voronoi jitterado com merge, grade de região como fonte da verdade.
+22. **Conforto** (seção 22) — depende de 12; é o que dá razão para casa em vez de abrigo.
 
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 

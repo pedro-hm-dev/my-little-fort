@@ -3,10 +3,10 @@ import { defineStore } from "pinia";
 import { UnitType, type Unit, type Position } from "@/types/Unit";
 import type { Structure } from "@/types/Structure";
 import type { Enemy } from "@/types/Enemy";
-import { RESOURCE_ICONS, type Resource } from "@/types/Resource";
+import { RESOURCE_ICONS, type Resource, type ResourceType } from "@/types/Resource";
 import unitDefs from "@/data/unitDefinitions.json";
 import structureDefs from "@/data/structureDefinitions.json";
-import { useStructureStore } from "./structures";
+import { useStructureStore, solidRadiusOf, structureDefinitionOf, occupantTypesOf } from "./structures";
 import { useWorldStore } from "./world";
 import { useResourceStore, rollSecondaryYield } from "./resources";
 import { useInventoryStore } from "./inventory";
@@ -227,6 +227,58 @@ export const useUnitStore = defineStore("units", () => {
     }
   }
 
+  /** How much material a unit carries per trip to a building site. */
+  const HAUL_LOAD = 12;
+  /** Each extra worker in a structure contributes this share of the previous one. */
+  const WORKER_DIMINISHING_RETURN = 0.6;
+  /** Slack on top of the site's solid body: how close counts as "at the site". */
+  const WORK_REACH = 55;
+
+  /**
+   * Sends units to work a building site: they fetch what it still owes, then raise it.
+   * Any other order cancels it, and whatever was in hand goes back to storage.
+   */
+  function buildStructure(unitIds: string[], structureId: string) {
+    const structureStore = useStructureStore();
+    const site = structureStore.getStructure(structureId);
+    if (!site?.construction) return;
+
+    const angles = evenlySpacedAngles(unitIds.length);
+    const standoff = solidRadiusOf(site.type) + WORK_REACH * 0.6;
+
+    unitIds.forEach((id, index) => {
+      const unit = units.value.get(id);
+      if (!unit || unit.insideFortId) return;
+
+      const angle = angles[index]!;
+
+      units.value.set(id, {
+        ...unit,
+        buildTargetId: structureId,
+        targetResource: undefined,
+        gatherProgress: undefined,
+        gatherQueue: undefined,
+        combatTargetId: undefined,
+        combatTargetIsStructure: undefined,
+        combatQueue: undefined,
+        shelterTargetId: undefined,
+        targetPosition: {
+          x: site.position.x + Math.cos(angle) * standoff,
+          y: site.position.y + Math.sin(angle) * standoff,
+        },
+      });
+    });
+  }
+
+  /** Puts whatever the unit is carrying back into storage and returns the fields that clear the order. */
+  function releaseBuildOrder(unit: Unit): Partial<Unit> {
+    if (unit.hauling) {
+      useInventoryStore().addResource(unit.hauling.type, unit.hauling.amount, unit.position);
+    }
+
+    return { buildTargetId: undefined, hauling: undefined, haulSourceId: undefined };
+  }
+
   function moveUnitsTo(unitIds: string[], targetX: number, targetY: number) {
     if (unitIds.length === 1) {
       const id = unitIds[0];
@@ -235,6 +287,7 @@ export const useUnitStore = defineStore("units", () => {
       if (unit) {
         units.value.set(id, {
           ...unit,
+          ...releaseBuildOrder(unit),
           targetPosition: { x: targetX, y: targetY },
           targetResource: undefined,
           gatherProgress: undefined,
@@ -249,6 +302,7 @@ export const useUnitStore = defineStore("units", () => {
           const dist = Math.random() * scatterRadius;
           units.value.set(id, {
             ...unit,
+            ...releaseBuildOrder(unit),
             targetPosition: { x: targetX + Math.cos(angle) * dist, y: targetY + Math.sin(angle) * dist },
             targetResource: undefined,
             gatherProgress: undefined,
@@ -450,6 +504,20 @@ export const useUnitStore = defineStore("units", () => {
     };
   }
 
+  /**
+   * How hard a worked structure is running: 0 with nobody inside, and rising with each extra worker
+   * at diminishing returns, so a second smith helps a lot and a fourth barely shows.
+   */
+  function workerEfficiencyAt(structureId: string): number {
+    const workers = unitsInsideFort(structureId);
+    if (workers.length === 0) return 0;
+
+    return workers
+      .slice()
+      .sort((first, second) => second.efficiency - first.efficiency)
+      .reduce((total, worker, index) => total + worker.efficiency * WORKER_DIMINISHING_RETURN ** index, 0);
+  }
+
   /** Units currently occupying a structure: already inside it, plus those already walking toward it to shelter. */
   function structureOccupancy(structureId: string): number {
     return allUnits.value.filter((u) => u.insideFortId === structureId || u.shelterTargetId === structureId).length;
@@ -463,18 +531,23 @@ export const useUnitStore = defineStore("units", () => {
 
     const def = structureDefOf(structure);
     const maxOccupancy = def.maxOccupancy ?? Infinity;
+    const allowed = occupantTypesOf(structure.type);
     let occupancy = structureOccupancy(structureId);
+
+    // A site is not a building yet: nobody moves in until it is finished.
+    if (structure.construction) return;
 
     unitIds.forEach((id) => {
       const unit = units.value.get(id);
       if (!unit || unit.insideFortId) return;
-      if (!def.canReproduce?.includes(unit.type)) return;
+      if (!allowed.includes(unit.type)) return;
       if (occupancy >= maxOccupancy) return;
 
       occupancy++;
 
       units.value.set(id, {
         ...unit,
+        ...releaseBuildOrder(unit),
         targetResource: undefined,
         gatherProgress: undefined,
         gatherQueue: undefined,
@@ -484,6 +557,90 @@ export const useUnitStore = defineStore("units", () => {
         targetPosition: { ...structure.position },
       });
     });
+  }
+
+  /**
+   * One tick of a unit working a building site: fetch what the site owes, deliver it, then raise it.
+   * Returns the point to walk to, or undefined when there is nothing useful to do this tick.
+   */
+  function tickBuilder(unit: Unit, gameDeltaMs: number): Position | undefined {
+    const structureStore = useStructureStore();
+    const site = structureStore.getStructure(unit.buildTargetId!);
+
+    if (!site?.construction) {
+      units.value.set(unit.id, { ...unit, ...releaseBuildOrder(unit) });
+      return undefined;
+    }
+
+    const reach = solidRadiusOf(site.type) + WORK_REACH;
+
+    if (unit.hauling) {
+      if (distance(unit.position, site.position) > reach) return site.position;
+
+      const delivered = structureStore.deliverToSite(site.id, unit.hauling.type, unit.hauling.amount);
+      const leftOver = unit.hauling.amount - delivered;
+
+      // The site's debt may have been paid by someone else while this load was in transit.
+      if (leftOver > 0) useInventoryStore().addResource(unit.hauling.type, leftOver, unit.position);
+
+      unit.hauling = undefined;
+
+      return undefined;
+    }
+
+    if (!structureStore.isSiteStocked(site.id)) {
+      const source = unit.haulSourceId ? structureStore.getStructure(unit.haulSourceId) : null;
+
+      if (source) {
+        if (distance(unit.position, source.position) > solidRadiusOf(source.type) + WORK_REACH) return source.position;
+
+        const needed = structureStore.pendingMaterialsOf(site.id).find((material) => material.type === wantedFrom(source, site.id));
+        const taken = needed ? structureStore.withdrawFrom(source.id, needed.type, Math.min(HAUL_LOAD, needed.amount)) : 0;
+
+        unit.haulSourceId = undefined;
+        if (taken > 0) unit.hauling = { type: needed!.type, amount: taken };
+
+        return undefined;
+      }
+
+      for (const material of structureStore.pendingMaterialsOf(site.id)) {
+        const holder = structureStore.nearestStorageHolding(material.type, unit.position);
+        if (!holder) continue;
+
+        unit.haulSourceId = holder.id;
+
+        return holder.position;
+      }
+
+      // Nothing in store to fetch: wait at the site instead of walking off.
+      return distance(unit.position, site.position) > reach ? site.position : undefined;
+    }
+
+    if (distance(unit.position, site.position) > reach) return site.position;
+
+    const buildHours = structureDefinitionOf(site.type)?.buildTimeHours ?? 1;
+    const progressPerMs = unit.efficiency / (buildHours * (FULL_DAY_GAME_MS / 24));
+
+    structureStore.advanceConstruction(site.id, progressPerMs * gameDeltaMs);
+
+    return undefined;
+  }
+
+  /** Which pending material this source can actually supply — the one it holds most of. */
+  function wantedFrom(source: Structure, siteId: string): ResourceType | undefined {
+    const structureStore = useStructureStore();
+    let best: ResourceType | undefined;
+    let bestStock = 0;
+
+    for (const material of structureStore.pendingMaterialsOf(siteId)) {
+      const stock = source.inventory?.[material.type] ?? 0;
+      if (stock <= bestStock) continue;
+
+      bestStock = stock;
+      best = material.type;
+    }
+
+    return best;
   }
 
   function updateUnitPositions(gameDeltaMs: number) {
@@ -497,6 +654,18 @@ export const useUnitStore = defineStore("units", () => {
     for (const unit of units.value.values()) {
       // Skip units inside a fort
       if (unit.insideFortId) continue;
+
+      if (unit.buildTargetId) {
+        // Any other order wins: gather, attack and shelter all cancel the building order.
+        if (unit.targetResource || unit.combatTargetId || unit.shelterTargetId) {
+          units.value.set(unit.id, { ...unit, ...releaseBuildOrder(unit) });
+        } else {
+          const workSpot = tickBuilder(unit, gameDeltaMs);
+
+          unit.targetPosition = workSpot ? { ...workSpot } : undefined;
+          if (!unit.targetPosition) continue;
+        }
+      }
 
       if (unit.targetResource) {
         const resource = resourceStore.getResource(unit.targetResource);
@@ -519,7 +688,7 @@ export const useUnitStore = defineStore("units", () => {
             const depleted = resourceStore.depleteResource(unit.targetResource, 1);
             const secondary = rollSecondaryYield(resource.type);
 
-            inventoryStore.addResource(collected, 1);
+            inventoryStore.addResource(collected, 1, unit.position);
             effectsStore.spawn({
               kind: "gatherNumber",
               x: unit.position.x,
@@ -531,7 +700,7 @@ export const useUnitStore = defineStore("units", () => {
             });
 
             if (secondary) {
-              inventoryStore.addResource(secondary, 1);
+              inventoryStore.addResource(secondary, 1, unit.position);
               effectsStore.spawn({
                 kind: "gatherNumber",
                 x: unit.position.x,
@@ -611,6 +780,7 @@ export const useUnitStore = defineStore("units", () => {
     getUnit,
     updateUnit,
     startReproduction,
+    buildStructure,
     exitShelter,
     updateFortUnits,
     moveUnitsTo,
@@ -620,6 +790,8 @@ export const useUnitStore = defineStore("units", () => {
     attackArea,
     gatherAll,
     shelterUnitsAt,
+    structureOccupancy,
+    workerEfficiencyAt,
     updateUnitPositions,
     initialize,
     pendingReproduction,

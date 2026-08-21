@@ -71,13 +71,19 @@ import { type Component } from "vue";
 import { type Structure } from "@/types/Structure";
 import structureDefs from "@/data/structureDefinitions.json";
 import UnitsTab from "./structure-tabs/UnitsTab.vue";
+import StorageTab from "./structure-tabs/StorageTab.vue";
+import WorkTab from "./structure-tabs/WorkTab.vue";
 
 const TAB_COMPONENTS: Record<string, Component> = {
   units: UnitsTab,
+  storage: StorageTab,
+  work: WorkTab,
 };
 
 const TAB_LABELS: Record<string, string> = {
   units: "Unidades",
+  storage: "Estoque",
+  work: "Trabalho",
 };
 
 const props = defineProps<{ structure: Structure }>();

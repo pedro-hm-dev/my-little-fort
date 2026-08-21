@@ -40,16 +40,18 @@
 <script setup lang="ts">
 import { useSelectionStore } from "@/stores/selection";
 import { useUnitStore } from "@/stores/units";
+import { useStructureStore } from "@/stores/structures";
 import type { Unit } from "@/types/Unit";
 import actionDefs from "@/data/actionDefinitions.json";
 
-type ActionCommandId = "move" | "attack" | "gather" | "shelter";
+type ActionCommandId = "move" | "attack" | "gather" | "shelter" | "build";
 
 const ACTIONS: Array<{ id: ActionCommandId; label: string; icon: string }> = [
   { id: "move", label: "Mover", icon: "i-game-icons-walking-boot" },
   { id: "attack", label: "Atacar", icon: "i-game-icons-crossed-swords" },
   { id: "gather", label: "Coletar", icon: "i-game-icons-backpack" },
   { id: "shelter", label: "Abrigar", icon: "i-game-icons-door" },
+  { id: "build", label: "Construir", icon: "i-game-icons-hammer-nails" },
 ];
 
 const ACTION_DEFS = actionDefs as unknown as Record<string, { cooldownMs: number }>;
@@ -92,8 +94,14 @@ function cooldownWedgeStyle(actionId: ActionCommandId) {
   return { background: `conic-gradient(rgba(0, 0, 0, 0.7) ${fraction * 360}deg, transparent 0deg)` };
 }
 
+const hasBuildingSite = computed(() =>
+  useStructureStore().allStructures.some((structure) => structure.construction !== undefined),
+);
+
 function isDisabled(actionId: ActionCommandId): boolean {
-  return actionId === "attack" && !canAttack.value;
+  if (actionId === "attack") return !canAttack.value;
+
+  return actionId === "build" && !hasBuildingSite.value;
 }
 
 function buttonClass(actionId: ActionCommandId) {

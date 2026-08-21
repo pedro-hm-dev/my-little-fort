@@ -22,7 +22,7 @@
 
     <template #description>
       <span class="font-mono text-green-400">{{ inventoryStore.totalResources }}</span>
-      <span class="text-green-800"> unidades</span>
+      <span class="text-green-800"> de {{ inventoryStore.capacity }} de espaço</span>
     </template>
 
     <template #body>
@@ -97,7 +97,9 @@
           <span class="text-xl font-bold text-green-300 tabular-nums">
             {{ inventoryStore.totalResources }}
           </span>
-          <span class="text-xs text-green-800 uppercase tracking-widest font-mono">un</span>
+          <span class="text-xs text-green-800 uppercase tracking-widest font-mono">
+            / {{ inventoryStore.capacity }} un
+          </span>
         </div>
       </div>
     </template>
@@ -106,6 +108,7 @@
 
 <script setup lang="ts">
 import { useInventoryStore } from "@/stores/inventory";
+import { RESOURCE_LABELS as resourceNames } from "@/utils/resourceLabels";
 import { RESOURCE_ICONS, ResourceType } from "@/types/Resource";
 
 const inventoryStore = useInventoryStore();
@@ -132,25 +135,6 @@ const resourceColors: Record<ResourceType, string> = {
   [ResourceType.PlantFiber]: "#84cc16",
 };
 
-const resourceNames: Record<ResourceType, string> = {
-  [ResourceType.Wood]: "Madeira",
-  [ResourceType.Stone]: "Pedra",
-  [ResourceType.Metal]: "Metal",
-  [ResourceType.Gold]: "Ouro",
-  [ResourceType.Fish]: "Peixe",
-  [ResourceType.Mushroom]: "Cogumelo",
-  [ResourceType.Cactus]: "Cacto",
-  [ResourceType.Meat]: "Carne",
-  [ResourceType.Leather]: "Couro",
-  [ResourceType.Algae]: "Alga",
-  [ResourceType.WhiteMeat]: "Carne Branca",
-  [ResourceType.Fat]: "Gordura",
-  [ResourceType.LegendaryFang]: "Presa Lendária",
-  [ResourceType.Poison]: "Veneno",
-  [ResourceType.Egg]: "Ovo",
-  [ResourceType.Carcass]: "Carcaça",
-  [ResourceType.PlantFiber]: "Fibra Vegetal",
-};
 
 const sortedInventory = computed(() =>
   [...inventoryStore.allInventory].sort((a, b) => b.amount - a.amount),

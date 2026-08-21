@@ -53,7 +53,8 @@ export const useNavigationStore = defineStore("navigation", () => {
     const next = createNavGrid(cameraStore.mapWidth, cameraStore.mapHeight, NAV_CELL_SIZE);
     const nextSolids: Footprint[] = [];
 
-    for (const structure of useStructureStore().allStructures) {
+    // Sites are staked-out ground, not walls: builders have to be able to walk in.
+    for (const structure of useStructureStore().readyStructures) {
       const radius = solidRadiusOf(structure.type);
       if (radius <= 0) continue;
 
@@ -77,7 +78,7 @@ export const useNavigationStore = defineStore("navigation", () => {
 
     const structureStore = useStructureStore();
 
-    watch(() => structureStore.allStructures, rebuild, { immediate: true });
+    watch(() => structureStore.readyStructures, rebuild, { immediate: true });
   }
 
   function beginFrame() {

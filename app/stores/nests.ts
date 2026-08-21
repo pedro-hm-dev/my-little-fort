@@ -83,12 +83,13 @@ export const useNestStore = defineStore("nests", () => {
     const inventoryStore = useInventoryStore();
 
     if (choice === "eggs") {
-      inventoryStore.addResource(ResourceType.Egg, randomInRange(EGGS_YIELD));
+      inventoryStore.addResource(ResourceType.Egg, randomInRange(EGGS_YIELD), nest.position);
       scheduleRespawn(nest, EGGS_RESPAWN_DAYS);
     } else {
       const def = enemyDefs[nest.enemyType as EnemyDefKey] as unknown as { nestLoot?: LootDrop[] };
       for (const drop of def.nestLoot ?? []) {
-        if (Math.random() < drop.chance) inventoryStore.addResource(drop.type as ResourceType, randomInRange(drop.amount));
+        if (Math.random() < drop.chance)
+          inventoryStore.addResource(drop.type as ResourceType, randomInRange(drop.amount), nest.position);
       }
       scheduleRespawn(nest, LOOT_RESPAWN_DAYS);
     }
