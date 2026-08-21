@@ -14,6 +14,7 @@ import { useSelectionStore } from "./selection";
 import { useEnemyStore } from "./enemies";
 import { useEffectsStore } from "./effects";
 import { isInWater, distance, approachPoint, evenlySpacedAngles } from "@/utils/geometry";
+import { useNavigationStore } from "./navigation";
 import { combatRangeFor } from "@/utils/combatEngine";
 import actionDefs from "@/data/actionDefinitions.json";
 import type { ActionDefinition } from "@/types/Combat";
@@ -489,6 +490,7 @@ export const useUnitStore = defineStore("units", () => {
     const resourceStore = useResourceStore();
     const inventoryStore = useInventoryStore();
     const effectsStore = useEffectsStore();
+    const navigationStore = useNavigationStore();
     const deltaMultiplier = gameDeltaMs / TARGET_FRAME_TIME;
     const lakesCache = worldStore.allWaterBodies;
 
@@ -550,13 +552,16 @@ export const useUnitStore = defineStore("units", () => {
 
       if (!unit.targetPosition) continue;
 
-      const dx = unit.targetPosition.x - unit.position.x;
-      const dy = unit.targetPosition.y - unit.position.y;
+      // The immediate step, which is the destination itself unless something solid is in the way.
+      const steer = navigationStore.routeTo(unit, unit.targetPosition, gameDeltaMs);
+      const dx = steer.x - unit.position.x;
+      const dy = steer.y - unit.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < 2) {
-        unit.position.x = unit.targetPosition.x;
-        unit.position.y = unit.targetPosition.y;
+        unit.position.x = steer.x;
+        unit.position.y = steer.y;
+        navigationStore.clearPath(unit);
 
         if (unit.shelterTargetId) {
           units.value.set(unit.id, { ...unit, insideFortId: unit.shelterTargetId, shelterTargetId: undefined, targetPosition: undefined });

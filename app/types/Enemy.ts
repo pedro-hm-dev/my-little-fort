@@ -40,6 +40,10 @@ export interface Enemy extends Combatant {
   resting?: boolean;
   /** Nest was raided while it lived: locks onto the player and ignores the chase leash. */
   enraged?: boolean;
+  // Navigation state (Navigable contract — see stores/navigation.ts)
+  path?: Position[];
+  pathGoal?: Position;
+  pathRetryMs?: number;
 }
 
 export enum EnemyType {

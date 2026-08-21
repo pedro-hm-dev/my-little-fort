@@ -123,6 +123,7 @@ import { useTimeStore, type TimeSpeed } from "@/stores/time";
 import { useInventoryStore } from "@/stores/inventory";
 import { useWorldStore } from "@/stores/world";
 import { useStructureStore } from "@/stores/structures";
+import { useNavigationStore } from "@/stores/navigation";
 import { useResourceStore } from "@/stores/resources";
 import { useUnitStore } from "@/stores/units";
 import { useEnemyStore } from "@/stores/enemies";
@@ -142,6 +143,7 @@ type UnitDefKey = keyof typeof unitDefs;
 const camera = useCameraStore();
 const worldStore = useWorldStore();
 const structureStore = useStructureStore();
+const navigationStore = useNavigationStore();
 const resourceStore = useResourceStore();
 const unitStore = useUnitStore();
 const enemyStore = useEnemyStore();
@@ -285,6 +287,7 @@ onMounted(async () => {
 
   worldStore.initialize();
   structureStore.initialize();
+  navigationStore.startWatchingStructures();
 
   const fortPos = structureStore.fortPosition;
   if (fortPos) {
@@ -325,6 +328,7 @@ const gameLoop = (timestamp: number) => {
 
   timeStore.tick(deltaMs);
   camera.updateMovement();
+  navigationStore.beginFrame();
   unitStore.updateUnitPositions(gameDeltaMs);
   unitStore.updateFortUnits(gameDeltaMs);
   enemyStore.updateEnemyAI(gameDeltaMs);

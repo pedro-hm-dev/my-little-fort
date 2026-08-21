@@ -8,6 +8,7 @@ import { useResourceStore } from "./resources";
 import { useCameraStore } from "./camera";
 import { useUnitStore } from "./units";
 import { isInWater, approachPoint, distance, outlineBounds } from "@/utils/geometry";
+import { useNavigationStore } from "./navigation";
 import { combatRangeFor } from "@/utils/combatEngine";
 import actionDefs from "@/data/actionDefinitions.json";
 import type { ActionDefinition } from "@/types/Combat";
@@ -393,6 +394,7 @@ export const useEnemyStore = defineStore("enemies", () => {
     const structureStore = useStructureStore();
     const fort = structureStore.getStructure("fort-1");
     const unitStore = useUnitStore();
+    const navigationStore = useNavigationStore();
     const lakesCache = worldStore.allWaterBodies;
     const deltaMultiplier = gameDeltaMs / TARGET_FRAME_TIME;
 
@@ -462,13 +464,15 @@ export const useEnemyStore = defineStore("enemies", () => {
 
       if (!dest) continue;
 
-      const dx = dest.x - enemy.position.x;
-      const dy = dest.y - enemy.position.y;
+      const steer = navigationStore.routeTo(enemy, dest, gameDeltaMs);
+      const dx = steer.x - enemy.position.x;
+      const dy = steer.y - enemy.position.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist < 4) {
-        enemy.position.x = dest.x;
-        enemy.position.y = dest.y;
+        enemy.position.x = steer.x;
+        enemy.position.y = steer.y;
+        navigationStore.clearPath(enemy);
         if (enemy.fleeing) enemy.fleeing = false;
         if (enemy.behavior === "ambient") enemy.targetPosition = undefined;
       } else {

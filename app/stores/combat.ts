@@ -7,7 +7,7 @@ import type { Enemy } from "@/types/Enemy";
 import { ResourceType } from "@/types/Resource";
 import { useUnitStore } from "./units";
 import { useEnemyStore } from "./enemies";
-import { useStructureStore } from "./structures";
+import { useStructureStore, solidRadiusOf } from "./structures";
 import { useResourceStore } from "./resources";
 import { useSelectionStore } from "./selection";
 import { useCameraStore } from "./camera";
@@ -42,6 +42,12 @@ interface Target {
   position: { x: number; y: number };
   /** Structures have no armor stat, so they always take full damage. */
   defense: number;
+  /**
+   * Solid body radius, subtracted from the distance so range is measured to the target's edge.
+   * A fort is 140 units across and nothing can stand inside it, so measuring to its center would
+   * put a 50-range club permanently out of reach.
+   */
+  radius: number;
 }
 
 export const useCombatStore = defineStore("combat", () => {
@@ -53,14 +59,14 @@ export const useCombatStore = defineStore("combat", () => {
   function resolveTarget(id: string, isStructure: boolean): Target | null {
     if (isStructure) {
       const s = useStructureStore().getStructure(id);
-      return s ? { id, isStructure: true, position: s.position, defense: 0 } : null;
+      return s ? { id, isStructure: true, position: s.position, defense: 0, radius: solidRadiusOf(s.type) } : null;
     }
 
     const u = useUnitStore().getUnit(id);
-    if (u) return { id, isStructure: false, position: u.position, defense: u.defense };
+    if (u) return { id, isStructure: false, position: u.position, defense: u.defense, radius: 0 };
 
     const e = useEnemyStore().getEnemy(id);
-    return e ? { id, isStructure: false, position: e.position, defense: e.defense } : null;
+    return e ? { id, isStructure: false, position: e.position, defense: e.defense, radius: 0 } : null;
   }
 
   function isAliveById(id: string, isStructure: boolean): boolean {
@@ -78,12 +84,14 @@ export const useCombatStore = defineStore("combat", () => {
       const nextId = unit.combatQueue.shift();
       const enemy = nextId ? enemyStore.getEnemy(nextId) : undefined;
       if (enemy && enemy.health > 0) {
-        return { id: enemy.id, isStructure: false, position: enemy.position, defense: enemy.defense };
+        return { id: enemy.id, isStructure: false, position: enemy.position, defense: enemy.defense, radius: 0 };
       }
     }
 
     const nearest = enemyGrid.findNearest(unit.position.x, unit.position.y, unit.combatRange);
-    return nearest ? { id: nearest.id, isStructure: false, position: nearest.position, defense: nearest.defense } : null;
+    return nearest
+      ? { id: nearest.id, isStructure: false, position: nearest.position, defense: nearest.defense, radius: 0 }
+      : null;
   }
 
   function findEnemyTarget(enemy: Enemy): Target | null {
@@ -100,13 +108,15 @@ export const useCombatStore = defineStore("combat", () => {
     }
 
     if (prey) {
-      return { id: prey.id, isStructure: false, position: prey.position, defense: prey.defense };
+      return { id: prey.id, isStructure: false, position: prey.position, defense: prey.defense, radius: 0 };
     }
 
     if (enemy.behavior === "horde") {
       const fort = useStructureStore().getStructure("fort-1");
-      if (fort && distance(enemy.position, fort.position) <= enemy.combatRange) {
-        return { id: fort.id, isStructure: true, position: fort.position, defense: 0 };
+      const fortRadius = fort ? solidRadiusOf(fort.type) : 0;
+
+      if (fort && distance(enemy.position, fort.position) - fortRadius <= enemy.combatRange) {
+        return { id: fort.id, isStructure: true, position: fort.position, defense: 0, radius: fortRadius };
       }
     }
 
@@ -445,7 +455,7 @@ export const useCombatStore = defineStore("combat", () => {
       return;
     }
 
-    const dist = distance(combatant.position, target.position);
+    const dist = distance(combatant.position, target.position) - target.radius;
     const action = pickAction(combatant.actionIds, combatant.actionCooldowns, dist, ACTION_DEFS);
     if (!action) return;
 

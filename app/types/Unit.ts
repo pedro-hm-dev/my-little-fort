@@ -47,6 +47,10 @@ export interface Unit {
   knockback?: { dirX: number; dirY: number; peakSpeed: number; remainingMs: number; totalMs: number };
   /** Remaining enemy ids to engage in order, after combatTargetId, from an area-attack command. */
   combatQueue?: string[];
+  // Navigation state (Navigable contract — see stores/navigation.ts)
+  path?: Position[];
+  pathGoal?: Position;
+  pathRetryMs?: number;
 }
 
 export enum UnitType {

@@ -856,34 +856,60 @@ Ainda não há nada que modifique o efetivo: isso chega com equipamento (seção
 
 ---
 
-## 20. Pathfinding — PLANEJADO (pré-requisito de qualquer estrutura sólida)
+## 20. Pathfinding — IMPLEMENTADO (pré-requisito de qualquer estrutura sólida)
 
-Hoje **nada colide com nada**. `updateUnitPositions` e `updateEnemyAI` movem em linha reta para o destino:
+Antes disto nada colidia com nada: `updateUnitPositions` e `updateEnemyAI` andavam em linha reta até o destino, e `isInWater` só trocava a velocidade. Agora existe uma camada de navegação com grade de bloqueio, A\* e seguimento de waypoints, e o forte é a primeira estrutura sólida de verdade.
 
-```ts
-unit.position.x += (dx / dist) * actualSpeed;
-```
+### O que foi feito
 
-A única coisa parecida com terreno é o `isInWater`, e ele só troca a velocidade (`swimSpeed`) — não impede a passagem. Aquático é a exceção: um inimigo `aquatic` recusa um destino fora da água, mas isso é um teste no destino, não no caminho.
+`app/utils/navGrid.ts` (novo, puro):
 
-Sem pathfinding, uma muralha é decoração: as unidades atravessam. Por isso ele vem antes de muralha, portão, ou qualquer estrutura que bloqueie.
+- **Grade de bloqueio** de 32 unidades por célula sobre o mapa de 5000×5000 — 157×157, 24KB, com um contador de `coverage` por célula para que remover uma estrutura não abra as células de outra que a sobrepõe.
+- **`segmentIsClear`** por travessia de células (Amanatides-Woo), não por amostragem de pontos ao longo do segmento. Amostragem é exatamente o que atravessa uma parede de uma célula de espessura — está coberto por teste.
+- **A\*** 8-direções, custo diagonal √2, sem corte de canto (a diagonal exige os dois ortogonais livres), heurística octile, heap binário e buffers reaproveitados entre chamadas com marca de geração, para não alocar 4 arrays de 24k por consulta.
+- **Suavização por linha de visão**: o caminho bruto é uma escada; descartar todo waypoint que a entidade já vê passar reduz o desvio do forte a 3 waypoints.
+- **`nearestOpenPoint`** (busca em anéis) e **`openPointToward`** (primeira célula livre voltando do alvo para quem anda).
 
-### Caminho sugerido
+`app/stores/navigation.ts` (novo): dona da grade, reconstruída por `watch` na lista de estruturas — só em construção ou destruição, nunca por frame (0,1ms). Expõe `routeTo(entity, dest, delta)`, que devolve o ponto a andar neste frame. `Unit` e `Enemy` ganharam `path`, `pathGoal` e `pathRetryMs` e satisfazem `Navigable` estruturalmente; o caminho mora na entidade, não numa tabela paralela.
 
-**Grade de navegação, no mesmo espírito da grade de ocupação de água** que já prototipei na seção 9 (32px por célula, 24KB para o mapa de 5000×5000, construída em 47ms). O mundo é estático fora das construções, então a grade só precisa ser reconstruída quando uma estrutura sólida nasce ou morre — e aí só nas células que ela cobre.
+Os dois laços de movimento passaram a andar em direção ao `steer` de `routeTo` em vez do destino cru. `combatRange` de estrutura passou a ser medido **até a borda** do corpo sólido.
 
-Com a grade: **A\*** sobre células, e o resultado é uma lista de waypoints que o movimento existente já sabe seguir — `patrolRoute` do verme (seção 5) faz exatamente isso, andar de waypoint em waypoint. Reusar aquele formato evita um sistema de movimento paralelo.
+### Por que o forte ficou sólido
 
-### Onde vai doer
+Sem obstáculo nenhum a camada seria código morto e não verificável. O forte é o candidato natural: `solidRadius: 70` em `structureDefinitions.json`, bem dentro do `fortClearRadius` de 180 que já impede recurso de nascer ali, então nada fica preso atrás dele. É **um campo de JSON** — tirar é trivial se o comportamento não agradar.
 
-- **Custo por frame.** A seção 9 mostrou que a simulação já era o gargalo, e que `updateCombat` domina com muitos inimigos. A\* por entidade por frame é inviável; o caminho precisa ser calculado **uma vez por ordem** e guardado (`unit.path?: Position[]`), recalculado só quando bloqueado ou quando a ordem muda.
-- **Orçamento por frame.** Com 300 inimigos, mesmo um A\* por ordem cria picos. Vale uma fila: N caminhos por frame, o resto espera um tick.
-- **Encalhe.** Unidade dentro de área que virou sólida (muralha construída em cima dela) precisa de saída, senão fica presa para sempre.
-- **Fluidez.** A\* em grade dá caminhos "quadrados". Suavizar por line-of-sight (pular waypoints que têm visão direta) é barato e melhora muito.
+### O custo, que foi medido três vezes porque as duas primeiras versões eram caras
 
-### Decisão aberta
+Com 400 inimigos convergindo no forte (o pior caso real):
 
-Colisão **entre entidades** entra ou não? Hoje unidades se sobrepõem livremente, e os comandos já mitigam isso espalhando o grupo em anel (`evenlySpacedAngles`). Colisão entidade-entidade é bem mais caro que colisão com terreno estático, e o jogo funciona sem ela — sugiro deixar fora do escopo e resolver só o bloqueio por estrutura.
+| versão | custo da camada |
+| --- | --- |
+| primeira | **7,4ms/frame** (+84% no movimento) |
+| + rejeição barata e sem atravessar parede ao desistir | 3,7ms/frame |
+| + destino realocado e raycast com alcance limitado | **~1,9ms/frame** (4,9µs por entidade) |
+
+O que estava caro, e é a lição:
+
+- **Destino dentro do sólido faz a multidão re-pathear todo frame.** A horda andava para o *centro* do forte, que é bloqueado, então o raycast nunca passava, o A\* realocava a meta, a entidade chegava, o caminho era descartado e no frame seguinte tudo de novo. O conserto foi `openPointToward`: uma ordem para dentro de uma parede vira ordem para a borda **do lado de quem anda**, o que mantém a linha reta livre.
+- **Raycast até um destino distante custa proporcional à distância, por entidade, por frame** — e não compra nada, porque um obstáculo a 2000 unidades é descoberto com folga por quem continua andando. O teste passou a ir só até `LOOKAHEAD` de 420 unidades. Com segmento curto, a rejeição por `distanceToSegment` contra as pegadas sólidas passa a resolver quase tudo sem tocar na grade.
+- **Desistir não pode significar atravessar a parede.** A primeira versão devolvia o destino quando o orçamento de A\* do frame acabava, o que fazia a entidade cortar direto pelo sólido. Agora ela **fica parada** um tick.
+
+### O bug que quase foi para a main
+
+Forte sólido de raio 70 com `clubSmash` de alcance 50 = o saqueador corpo a corpo **nunca alcançaria o forte**, e o jogo ficaria impossível de perder. A aquisição de alvo comparava a distância até o **centro** da estrutura. Passou a subtrair o raio sólido (`Target.radius`), de modo que alcance de estrutura se mede até a borda — que é o que faz sentido para um forte de 140 unidades de diâmetro e é o que vai valer para muralha e portão. Coberto por teste específico: o raider fecha a 119 do centro, 49 da borda, e bate.
+
+### Decisões tomadas
+
+- **Colisão entre entidades ficou fora**, como sugerido no plano. Unidades seguem se sobrepondo; o anel de `evenlySpacedAngles` continua sendo o que espalha o grupo.
+- **Orçamento de 6 A\* por frame.** Quem não passa fica parado um tick, e há um cooldown de 1200ms depois de meta inalcançável para nada rodar A\* todo frame. O cooldown **não** é aplicado quando o caminho terminou na meta de verdade, senão a próxima ordem congelaria a unidade por um segundo.
+- **Empurrão para fora do sólido** quando a entidade está dentro dele — é o caso de muralha construída em cima de alguém, que o plano previa como encalhe permanente.
+- **Rebuild completo da grade**, não incremental. Uma alocação de 24KB mais um stamp por estrutura sólida, só em construção/destruição. O contador de `coverage` já deixa o caminho incremental aberto se um dia doer.
+
+### O que vai precisar de atenção quando as muralhas chegarem
+
+- A **rejeição por pegada** é O(nº de sólidos) e desliga acima de 24 pegadas, caindo para a travessia de células direto. Com muralhas às centenas isso quer uma grade grosseira (super-células de 8×8 marcando "tem algo sólido aqui"), no mesmo espírito da grade de água.
+- **Raycast com alcance limitado entra em bolso côncavo.** Uma muralha em U faz a entidade andar para dentro e só então pedir caminho. Funciona, mas o movimento fica menos elegante que um A\* de longo alcance; se incomodar, o conserto é aumentar o `LOOKAHEAD` perto de aglomerado de sólido.
+- **`solidRadius` é círculo.** Muralha é segmento, não círculo; `stampCircle` vai precisar de um irmão `stampSegment`.
 
 ---
 
@@ -956,7 +982,7 @@ Lagos e rios continuam independentes das fronteiras, gerados por cima. Podem pas
 17. **Painel de unidades** (seção 17) — independente, e todo o estado necessário já existe.
 18. **Ctrl+clique** (seção 18) — FEITO.
 19. **Base/efetivo em ataque e armadura** (seção 19) — FEITO. Pré-requisito de 15.
-20. **Pathfinding** (seção 20) — pré-requisito de muralha e de qualquer estrutura sólida.
+20. **Pathfinding** (seção 20) — FEITO. Grade de bloqueio, A\* com suavização, forte é o primeiro corpo sólido.
 21. **Biomas cobrindo o mapa** (seção 21) — FEITO. Voronoi jitterado com merge, grade de região como fonte da verdade.
 
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.

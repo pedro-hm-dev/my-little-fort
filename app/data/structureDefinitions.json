@@ -6,6 +6,7 @@
     "maxHealth": 500,
     "iconName": "sand-castle",
     "iconSize": 200,
+    "solidRadius": 70,
     "tabs": ["units"],
     "canReproduce": ["worker", "soldier", "archer", "hunter", "miner"],
     "maxOccupancy": 10

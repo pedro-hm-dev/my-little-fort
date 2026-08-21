@@ -7,6 +7,12 @@ import { useWorldStore } from "./world";
 import { distanceToPolyline } from "@/utils/geometry";
 
 const fortDef = structureDefs.fort;
+const structureDefsByType = structureDefs as Record<string, { solidRadius?: number } | undefined>;
+
+/** Radius of the structure's impassable body, 0 when it can be walked through. */
+export function solidRadiusOf(type: string): number {
+  return structureDefsByType[type]?.solidRadius ?? 0;
+}
 
 function getRandomFortPosition(centerX: number, centerY: number): { x: number; y: number } {
   const MAX_DISTANCE = Math.min(centerX, centerY) * 0.5; // 50% of distance from center
