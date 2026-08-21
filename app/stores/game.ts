@@ -9,7 +9,6 @@ import { useNestStore } from "./nests";
 // Must match FULL_DAY_MS_AT_X1 in time.ts
 const FULL_DAY_GAME_MS = 300_000;
 const AMBIENT_CHECK_INTERVAL_MS = FULL_DAY_GAME_MS / 24; // ~once per in-game hour
-const AMBIENT_SPAWN_CHANCE = 0.35;
 
 export const useGameStore = defineStore("game", () => {
   const gameOver = ref(false);
@@ -35,9 +34,8 @@ export const useGameStore = defineStore("game", () => {
     ambientTimer += gameDeltaMs;
     if (ambientTimer >= AMBIENT_CHECK_INTERVAL_MS) {
       ambientTimer = 0;
-      if (Math.random() < AMBIENT_SPAWN_CHANCE) {
-        useEnemyStore().spawnAmbient();
-      }
+      // Sem chance global aqui: cada tipo rola o próprio spawnRate por instância de habitat.
+      useEnemyStore().spawnAmbient();
     }
   }
 

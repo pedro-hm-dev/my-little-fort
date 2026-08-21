@@ -7,7 +7,7 @@ import { useWorldStore } from "./world";
 import { useResourceStore } from "./resources";
 import { useCameraStore } from "./camera";
 import { useUnitStore } from "./units";
-import { isInWater, approachPoint, distance } from "@/utils/geometry";
+import { isInWater, approachPoint, distance, outlineBounds, pointInPolygon } from "@/utils/geometry";
 import { combatRangeFor } from "@/utils/combatEngine";
 import actionDefs from "@/data/actionDefinitions.json";
 import type { ActionDefinition } from "@/types/Combat";
@@ -22,14 +22,28 @@ interface AmbientSpawnConfig {
   /** If the habitat roll lands in this biome, spawn a pack (packSizeRange) instead of a lone enemy. */
   packBiome?: string;
   packSizeRange?: [number, number];
-  ambientCap?: number;
+  /** Chance per game hour, per habitat instance, of one more appearing. Low value = rare animal. */
+  spawnRate?: number;
+  /** Cap per habitat instance — a map with two deserts holds twice as many desert animals. */
+  biomeCap?: number;
 }
 
-const DEFAULT_AMBIENT_CAP = 4;
+const DEFAULT_SPAWN_RATE = 0.2;
+const DEFAULT_BIOME_CAP = 4;
 
-function ambientCapFor(type: EnemyType): number {
-  const def = enemyDefs[type as EnemyDefKey] as unknown as AmbientSpawnConfig;
-  return def.ambientCap ?? DEFAULT_AMBIENT_CAP;
+/**
+ * One place a habitat exists on this map. A biome habitat has one instance per region, a lake habitat
+ * one per lake — which is what makes the cap scale with the generated geography instead of being a
+ * single map-wide number.
+ *
+ * `contains` decides whether an enemy standing somewhere counts against this instance's cap. It is
+ * evaluated at roll time rather than stored on the enemy, because animals wander: a `regionId` copied
+ * at spawn goes stale the moment the bear walks out of the tundra.
+ */
+interface HabitatInstance {
+  id: string;
+  contains: (position: Position) => boolean;
+  sample: () => Position | null;
 }
 
 const HORDE_BASE_COUNT = 3;
@@ -109,10 +123,6 @@ export const useEnemyStore = defineStore("enemies", () => {
 
   function getEnemy(id: string): Enemy | undefined {
     return enemies.value.get(id);
-  }
-
-  function ambientCountByType(type: EnemyType): number {
-    return allEnemies.value.filter((e) => e.type === type && e.behavior === "ambient").length;
   }
 
   /** Spawns a horde at a random map edge, marching on the fort. Scales with the day count. */
@@ -257,30 +267,100 @@ export const useEnemyStore = defineStore("enemies", () => {
     }
   }
 
-  /** Rolls for opportunistic ambient spawns — each type's habitat/pack behavior comes from its definition. */
-  function spawnAmbient() {
+  /**
+   * Every place this habitat exists. Grassland is the default fill and has no placed regions, so it
+   * becomes a single implicit instance covering the map — without that, anything living in grassland
+   * (the capybara) would have zero instances and never spawn at all.
+   */
+  function habitatInstances(habitat: EnemyHabitat): HabitatInstance[] {
     const worldStore = useWorldStore();
     const resourceStore = useResourceStore();
     const camera = useCameraStore();
 
+    const wholeMap = (id: string): HabitatInstance => ({
+      id,
+      contains: () => true,
+      sample: () => sampleHabitatPosition(habitat, worldStore, resourceStore, camera),
+    });
+
+    if (habitat.kind === "lake") {
+      return worldStore.allLakes.map((lake, index) => ({
+        id: `lake-${index}`,
+        contains: (position) => distance(position, lake.center) <= lake.radius * 1.5,
+        sample: () => {
+          for (let tries = 0; tries < 10; tries++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * lake.radius * 0.6;
+            const pos = { x: lake.center.x + Math.cos(angle) * dist, y: lake.center.y + Math.sin(angle) * dist };
+            if (isInWater(pos.x, pos.y, worldStore.allLakes)) return pos;
+          }
+          return null;
+        },
+      }));
+    }
+
+    // A resource habitat has no natural instance to divide by (wolves follow trees, which are
+    // scattered), so it keeps a single map-wide cap.
+    if (habitat.kind === "resource") return [wholeMap("resource")];
+
+    const regions = worldStore.regionsOfBiome(habitat.biome as BiomeType);
+    if (regions.length === 0) return [wholeMap(`biome-${habitat.biome}`)];
+
+    return regions.map((region) => ({
+      id: region.id,
+      contains: (position) => pointInPolygon(position, region.outline),
+      sample: () => {
+        const bounds = outlineBounds(region.outline);
+        for (let tries = 0; tries < 20; tries++) {
+          const pos = {
+            x: bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
+            y: bounds.minY + Math.random() * (bounds.maxY - bounds.minY),
+          };
+          if (pointInPolygon(pos, region.outline) && !isInWater(pos.x, pos.y, worldStore.allWaterBodies)) return pos;
+        }
+        return null;
+      },
+    }));
+  }
+
+  /**
+   * Rolls for ambient spawns once per game hour: for every habitat instance, roll that type's
+   * `spawnRate` and place one if the instance is under its `biomeCap`. Rarity and density are both
+   * per-type data now, instead of every animal sharing one global chance.
+   */
+  function spawnAmbient() {
+    const worldStore = useWorldStore();
+
     for (const type of Object.values(EnemyType)) {
       const def = enemyDefs[type as EnemyDefKey] as unknown as AmbientSpawnConfig & { behavior: string };
       if (def.behavior !== "ambient" || !def.habitat) continue;
-      if (ambientCountByType(type) >= ambientCapFor(type)) continue;
 
-      const anchor = sampleHabitatPosition(def.habitat, worldStore, resourceStore, camera);
-      if (!anchor) continue;
+      const spawnRate = def.spawnRate ?? DEFAULT_SPAWN_RATE;
+      const biomeCap = def.biomeCap ?? DEFAULT_BIOME_CAP;
 
-      const inPackBiome = def.packBiome ? worldStore.biomeAt(anchor.x, anchor.y) === def.packBiome : false;
-      const [minPack, maxPack] = def.packSizeRange ?? [1, 1];
-      const packSize = inPackBiome ? minPack + Math.floor(Math.random() * (maxPack - minPack + 1)) : 1;
+      for (const instance of habitatInstances(def.habitat)) {
+        if (Math.random() >= spawnRate) continue;
 
-      for (let i = 0; i < packSize && ambientCountByType(type) < ambientCapFor(type); i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * 60;
-        const pos = i === 0 ? anchor : { x: anchor.x + Math.cos(angle) * dist, y: anchor.y + Math.sin(angle) * dist };
+        const countHere = () =>
+          allEnemies.value.filter((e) => e.type === type && e.behavior === "ambient" && instance.contains(e.position))
+            .length;
 
-        addEnemy(createEnemy(type, pos, "ambient"));
+        if (countHere() >= biomeCap) continue;
+
+        const anchor = instance.sample();
+        if (!anchor) continue;
+
+        const inPackBiome = def.packBiome ? worldStore.biomeAt(anchor.x, anchor.y) === def.packBiome : false;
+        const [minPack, maxPack] = def.packSizeRange ?? [1, 1];
+        const packSize = inPackBiome ? minPack + Math.floor(Math.random() * (maxPack - minPack + 1)) : 1;
+
+        for (let born = 0; born < packSize && countHere() < biomeCap; born++) {
+          const angle = Math.random() * Math.PI * 2;
+          const dist = Math.random() * 60;
+          const pos = born === 0 ? anchor : { x: anchor.x + Math.cos(angle) * dist, y: anchor.y + Math.sin(angle) * dist };
+
+          addEnemy(createEnemy(type, pos, "ambient"));
+        }
       }
     }
   }
@@ -393,6 +473,7 @@ export const useEnemyStore = defineStore("enemies", () => {
     getEnemy,
     spawnHorde,
     spawnAmbient,
+    habitatInstances,
     spawnTerritorial,
     spawnTerritorialInRegion,
     updateEnemyAI,

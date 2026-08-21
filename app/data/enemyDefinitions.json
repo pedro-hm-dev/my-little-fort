@@ -52,9 +52,10 @@
     "actionIds": ["bite"],
     "behavior": "ambient",
     "habitat": { "kind": "resource", "resourceType": "wood" },
+    "spawnRate": 0.35,
+    "biomeCap": 6,
     "packBiome": "forest",
     "packSizeRange": [1, 3],
-    "ambientCap": 8,
     "lootTable": [
       { "type": "meat", "chance": 0.6, "amount": [3, 4] },
       { "type": "leather", "chance": 0.6, "amount": [2, 3] }
@@ -76,6 +77,8 @@
     "behavior": "ambient",
     "aquatic": true,
     "habitat": { "kind": "lake" },
+    "spawnRate": 0.3,
+    "biomeCap": 4,
     "lootTable": [{ "type": "fish", "chance": 0.7, "amount": [2, 4] }]
   },
 
@@ -93,6 +96,8 @@
     "actionIds": ["maul", "slash"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "tundra" },
+    "spawnRate": 0.15,
+    "biomeCap": 3,
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [9, 16] },
       { "type": "leather", "chance": 1, "amount": [5, 12] }
@@ -113,9 +118,10 @@
     "actionIds": ["thrust", "charge"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "tundra" },
+    "spawnRate": 0.08,
+    "biomeCap": 2,
     "packBiome": "tundra",
     "packSizeRange": [1, 3],
-    "ambientCap": 8,
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [20, 45] },
       { "type": "leather", "chance": 1, "amount": [10, 25] }
@@ -136,6 +142,8 @@
     "actionIds": ["maul", "slash"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "tundra" },
+    "spawnRate": 0.12,
+    "biomeCap": 2,
     "lootTable": [
       { "type": "meat", "chance": 0.85, "amount": [6, 8] },
       { "type": "leather", "chance": 0.85, "amount": [4, 6] }
@@ -156,6 +164,8 @@
     "actionIds": ["bite"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "desert" },
+    "spawnRate": 0.15,
+    "biomeCap": 3,
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [12, 26] },
       { "type": "leather", "chance": 0.85, "amount": [4, 6] }
@@ -176,9 +186,10 @@
     "actionIds": ["bite"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "desert" },
+    "spawnRate": 0.3,
+    "biomeCap": 6,
     "packBiome": "desert",
     "packSizeRange": [2, 4],
-    "ambientCap": 8,
     "lootTable": [
       { "type": "whiteMeat", "chance": 0.6, "amount": [3, 4] },
       { "type": "leather", "chance": 0.6, "amount": [2, 3] }
@@ -199,6 +210,8 @@
     "actionIds": ["poisonSting"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "desert" },
+    "spawnRate": 0.4,
+    "biomeCap": 6,
     "lootTable": [
       { "type": "meat", "chance": 0.1, "amount": [1, 1] },
       { "type": "poison", "chance": 0.45, "amount": [5, 12] }
@@ -220,6 +233,8 @@
     "behavior": "ambient",
     "aquatic": true,
     "habitat": { "kind": "lake", "biome": "desert" },
+    "spawnRate": 0.2,
+    "biomeCap": 3,
     "lootTable": [{ "type": "fish", "chance": 0.7, "amount": [3, 5] }]
   },
 
@@ -265,9 +280,10 @@
     "behavior": "ambient",
     "passive": true,
     "habitat": { "kind": "biome", "biome": "grassland" },
+    "spawnRate": 0.5,
+    "biomeCap": 8,
     "packBiome": "grassland",
     "packSizeRange": [2, 4],
-    "ambientCap": 8,
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [4, 9] },
       { "type": "leather", "chance": 0.8, "amount": [2, 4] }
@@ -288,6 +304,8 @@
     "actionIds": ["slash", "evilMagicRay"],
     "behavior": "ambient",
     "habitat": { "kind": "biome", "biome": "desert" },
+    "spawnRate": 0.2,
+    "biomeCap": 4,
     "lootTable": [
       { "type": "meat", "chance": 1, "amount": [9, 16] },
       { "type": "leather", "chance": 1, "amount": [5, 12] }
