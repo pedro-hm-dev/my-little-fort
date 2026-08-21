@@ -441,6 +441,7 @@ Cada instância traz `contains(position)` e `sample()`. O `contains` é avaliado
 
 ### Decisões que ficaram
 
+- **A instância implícita de grassland é temporária.** Quando a seção 21 fizer grassland virar bioma com regiões próprias, esse caso especial pode sair e o cap da capivara passa a escalar com o número de campos.
 - **`kind: "resource"` manteve cap global.** Não há instância natural: as árvores estão espalhadas por todo lado, e dividir por árvore daria um teto absurdo. Se um dia virar problema, o caminho é agrupar por cluster de recurso.
 - **`packBiome`/`packSizeRange` sobreviveram** e são ortogonais ao `spawnRate`: a taxa decide *se* nasce, o pack decide *quantos* de uma vez. O lobo segue só fazendo matilha em floresta.
 
@@ -886,6 +887,52 @@ Colisão **entre entidades** entra ou não? Hoje unidades se sobrepõem livremen
 
 ---
 
+## 21. Biomas cobrindo o mapa em polígonos complexos — PLANEJADO
+
+### Como é hoje
+
+`BIOME_REGION_SPECS` sorteia 1 a 2 blobs por bioma (floresta, deserto, tundra, montanha), cada um gerado por `generateOrganicOutline` — **a mesma função que faz os lagos**, isto é, um círculo com o raio perturbado por noise. Eles são espalhados com `BIOME_REGION_MIN_GAP` de 150 entre si, e **grassland é o que sobra**: `biomeAtRegions` devolve `Grassland` quando o ponto não caiu em nenhum blob.
+
+Daí vêm as duas queixas: as formas são círculos deformados, e os biomas não se encaixam — ficam ilhas separadas num mar de grassland.
+
+### Para onde ir
+
+1. **Grassland vira bioma de verdade**, com regiões próprias, e deixa de ser o valor de fallback.
+2. **Particionamento completo**: todo ponto do mapa pertence a exatamente uma região. Não há mais "fundo".
+3. **Polígonos complexos** — côncavos, irregulares, com fronteiras compartilhadas, em vez de blobs convexos isolados.
+
+### Técnica sugerida: Voronoi jitterado com merge
+
+Classificação puramente por noise (temperatura × umidade, que é o que Minecraft faz de fato) daria fronteiras orgânicas e cobriria tudo, **mas não serve aqui**: ela responde "qual bioma neste ponto" e nunca produz **regiões discretas com id e contorno** — e as seções 4, 5 e 8 dependem exatamente disso (um verme por região, um cap por região). Trocar por noise puro quebraria os três sistemas.
+
+O caminho que dá as duas coisas:
+
+1. **Semear pontos jitterados** pelo mapa e construir o **Voronoi**. Cobre tudo por construção, e cada célula é um polígono.
+2. **Atribuir bioma por célula**, com peso por tipo (grassland mais comum, montanha mais rara). Aqui pode entrar noise de temperatura/umidade para agrupar biomas plausíveis em vez de espalhá-los aleatoriamente.
+3. **Fundir células adjacentes de mesmo bioma** numa região só. É esse passo que produz o **polígono complexo e côncavo** que ele quer — uma região passa a ser a união de várias células, não um blob.
+4. **Deformar as arestas com noise** para as fronteiras não ficarem retas.
+
+Evitar **relaxação de Lloyd**: ela deixa as células mais regulares, ou seja, mais hexagonais — exatamente o que ele não quer. Jitter forte, sem relaxação.
+
+### Consequências, e várias já são lições aprendidas aqui
+
+- **`regionContains` precisa de `bounds`.** Hoje ele faz descarte por `center` + `radius * 1.5` antes do `pointInPolygon`. Numa região côncava fundida de várias células, o raio pode cobrir metade do mapa e não rejeitar nada — **exatamente o que aconteceu com os rios na seção 9**, onde o raio abrangia todo o comprimento. `BiomeRegion` vai precisar de `bounds`, como `Lake` já tem. Foi o motivo pelo qual não adicionei bounds na seção 4: com blobs, o raio bastava. Com polígonos complexos, não basta mais.
+- **`biomeAt` fica mais caro, e é chamado com frequência.** Hoje ele para na primeira região que contém, e a maioria dos pontos não está em nenhuma (retorna Grassland rápido). Com particionamento completo, todo ponto exige varrer até achar a região dona, sobre polígonos maiores. E `buildBiomeTexture` chama isso ~4.000 vezes na geração, mais o spawn em runtime.
+  O caminho é o mesmo da grade de água da seção 9: **uma grade de índice de região**, construída uma vez, transformando `biomeAt` e `regionAt` em indexação de array. O protótipo da seção 9 já mostrou o custo (24KB, 47ms de build) e a técnica de 3 estados para as células de borda.
+- **A instância implícita de grassland (seção 8) deixa de ser necessária.** Grassland passando a ter regiões, o caso especial `regions.length === 0 → uma instância do mapa` pode sair, e o cap da capivara passa a escalar com o número de campos. Vale conferir se o teto dela continua razoável nesse novo mundo.
+- **`regionCountByBiome`** passa a contar grassland com valor maior que zero, o que muda o teto de tudo que mora lá.
+- **A rota de patrulha do verme (seção 5) pode degradar.** `generatePatrolRoute` faz amostragem por rejeição na bounding box do contorno. Numa região côncava e irregular, a razão área/bbox cai e a taxa de aceitação despenca — as 400 tentativas atuais podem não bastar. Se acontecer, o conserto é amostrar por triangulação do polígono em vez de por rejeição.
+- **As regiões devem nascer como dados planos.** A seção 9 mostrou que polígono dentro de `ref` profundamente reativo custou 11x; `biomeRegions` já é `shallowRef`, e precisa continuar.
+
+### Decisões abertas
+
+- **Quantas células e qual tamanho médio de região?** Isso define se o mapa tem poucos biomas grandes ou um mosaico. Afeta diretamente o teto de spawn da seção 8, que multiplica por número de regiões.
+- **Biomas vizinhos plausíveis?** Deserto colado em tundra é estranho; exigir adjacência coerente (via noise de temperatura) é mais trabalho, mas evita mapas absurdos.
+- **A textura de bioma continua em 63×63?** Com fronteiras mais recortadas, essa resolução (célula de 80 unidades) vai serrilhar visivelmente as bordas.
+- **Lagos e rios interagem com as fronteiras?** Hoje são independentes e ficam por cima. Podem continuar assim, ou passar a respeitar/definir limites de bioma.
+
+---
+
 ## Ordem recomendada
 
 1. **Ataque/Defesa** (seção 1) — base isolada, sem dependência de nada do verme, dá pra validar sozinha.
@@ -908,6 +955,7 @@ Colisão **entre entidades** entra ou não? Hoje unidades se sobrepõem livremen
 18. **Ctrl+clique** (seção 18) — FEITO.
 19. **Base/efetivo em ataque e armadura** (seção 19) — FEITO. Pré-requisito de 15.
 20. **Pathfinding** (seção 20) — pré-requisito de muralha e de qualquer estrutura sólida.
+21. **Biomas cobrindo o mapa** (seção 21) — mexe na base geográfica de que as seções 4, 5 e 8 dependem; fazer antes que mais sistemas se apoiem em região.
 
 9. **Performance** (seção 9) — A–D1 feitos, mais as duas correções de `isInWater` que o profile revelou (simulação 4,4x mais rápida com 100 inimigos). O gargalo atual é `updateCombat`.
 
