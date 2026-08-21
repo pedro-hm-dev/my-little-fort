@@ -7,7 +7,7 @@ import { useWorldStore } from "./world";
 import { useResourceStore } from "./resources";
 import { useCameraStore } from "./camera";
 import { useUnitStore } from "./units";
-import { isInWater, approachPoint, distance, outlineBounds, pointInPolygon } from "@/utils/geometry";
+import { isInWater, approachPoint, distance, outlineBounds } from "@/utils/geometry";
 import { combatRangeFor } from "@/utils/combatEngine";
 import actionDefs from "@/data/actionDefinitions.json";
 import type { ActionDefinition } from "@/types/Combat";
@@ -231,9 +231,23 @@ export const useEnemyStore = defineStore("enemies", () => {
    * its original spot even though the new patrol loop has a different center.
    */
   function spawnTerritorialInRegion(type: EnemyType, region: BiomeRegion, pinnedNestPosition?: Position): Enemy | null {
+    const worldStore = useWorldStore();
     const [minWaypoints, maxWaypoints] = PATROL_WAYPOINT_RANGE;
     const waypointCount = minWaypoints + Math.floor(Math.random() * (maxWaypoints - minWaypoints + 1));
-    const route = generatePatrolRoute(region.outline, waypointCount);
+
+    // A rota é amostrada do `outline`, que é só o anel externo — numa região com buraco ele engloba
+    // pedaço de outra região. A grade é a verdade, então descartamos o waypoint que caiu fora.
+    let route = generatePatrolRoute(region.outline, waypointCount);
+
+    for (let attempt = 0; attempt < 5 && route; attempt++) {
+      const inside = route.waypoints.filter((wp) => worldStore.regionAt(wp.x, wp.y)?.id === region.id);
+      if (inside.length === route.waypoints.length) break;
+      if (inside.length >= 3) {
+        route = { waypoints: inside, center: route.center };
+        break;
+      }
+      route = generatePatrolRoute(region.outline, waypointCount);
+    }
 
     if (!route) return null;
 
@@ -308,15 +322,20 @@ export const useEnemyStore = defineStore("enemies", () => {
 
     return regions.map((region) => ({
       id: region.id,
-      contains: (position) => pointInPolygon(position, region.outline),
+      // Grade, não polígono: o `outline` é o anel externo de uma região que pode ter buracos, então
+      // pointInPolygon divergia da verdade em ~30% dos pontos. regionAt consulta a grade de geração.
+      contains: (position) => worldStore.regionAt(position.x, position.y)?.id === region.id,
       sample: () => {
-        const bounds = outlineBounds(region.outline);
-        for (let tries = 0; tries < 20; tries++) {
+        const bounds = region.bounds ?? outlineBounds(region.outline);
+        for (let tries = 0; tries < 30; tries++) {
           const pos = {
             x: bounds.minX + Math.random() * (bounds.maxX - bounds.minX),
             y: bounds.minY + Math.random() * (bounds.maxY - bounds.minY),
           };
-          if (pointInPolygon(pos, region.outline) && !isInWater(pos.x, pos.y, worldStore.allWaterBodies)) return pos;
+          // Pela grade, não pelo polígono: o anel externo engloba buracos de regiões vizinhas, e
+          // amostrar de lá fazia o bicho nascer no bioma errado.
+          if (worldStore.regionAt(pos.x, pos.y)?.id !== region.id) continue;
+          if (!isInWater(pos.x, pos.y, worldStore.allWaterBodies)) return pos;
         }
         return null;
       },
@@ -357,7 +376,10 @@ export const useEnemyStore = defineStore("enemies", () => {
         for (let born = 0; born < packSize && countHere() < biomeCap; born++) {
           const angle = Math.random() * Math.PI * 2;
           const dist = Math.random() * 60;
-          const pos = born === 0 ? anchor : { x: anchor.x + Math.cos(angle) * dist, y: anchor.y + Math.sin(angle) * dist };
+          const scattered = { x: anchor.x + Math.cos(angle) * dist, y: anchor.y + Math.sin(angle) * dist };
+          // O espalhamento da matilha pode cair na região vizinha, e aí o bicho contaria contra o cap
+          // dela em vez desta — estourando o teto de lá. Fora da instância, nasce na âncora.
+          const pos = born === 0 || !instance.contains(scattered) ? anchor : scattered;
 
           addEnemy(createEnemy(type, pos, "ambient"));
         }

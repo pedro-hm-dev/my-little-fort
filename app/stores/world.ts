@@ -2,7 +2,8 @@ import { ref, computed, shallowRef } from "vue";
 import { defineStore } from "pinia";
 import { useCameraStore } from "@/stores/camera";
 import { BiomeType, type BiomeRegion, type Lake, type Position } from "@/types/Terrain";
-import { distance, outlineBounds, pointInPolygon } from "@/utils/geometry";
+import { distance, outlineBounds } from "@/utils/geometry";
+import { generateBiomeMap, regionIndexAt, type BiomeMap } from "@/utils/biomeMap";
 import { fbm, noise2D, setGlobalSeed, getSeededRandom } from "@/utils/noise";
 
 // Lake generation configuration
@@ -57,55 +58,35 @@ const BEAN_CONFIG = {
   elongation: 1.3,
 } as const;
 
-interface BiomeRegionSpec {
-  biome: BiomeType;
-  minCount: number;
-  maxCount: number;
-  minRadius: number;
-  maxRadius: number;
-}
+// Biome generation lives in utils/biomeMap.ts: a rasterized Voronoi that partitions the whole map.
+// Grassland is a biome like any other now, not the value returned when a point misses every blob.
+const BIOME_GRID_CELL_SIZE = 50;
+const BIOME_SEED_COUNT = 34;
+/**
+ * Domain warp that ragges up the Voronoi borders. The strength has to be a real fraction of the
+ * average cell span (~850 units at 34 seeds) or the borders stay axis-aligned, which is exactly the
+ * grid-of-rectangles look we're avoiding. Two octaves of scale give both big lobes and small bites.
+ */
+const BIOME_WARP_SCALE = 0.00055;
+const BIOME_WARP_STRENGTH = 900;
+const BIOME_WARP_DETAIL_SCALE = 0.0022;
+const BIOME_WARP_DETAIL_STRENGTH = 260;
 
-// Each biome (besides the Grassland default) shows up as only one or two large, distinct blobs on
-// the map — not a continuous noise classification. Reuses the exact same organic-outline generator
-// as lakes, just for land regions instead of water.
-const BIOME_REGION_SPECS: BiomeRegionSpec[] = [
-  { biome: BiomeType.Forest, minCount: 1, maxCount: 2, minRadius: 700, maxRadius: 1150 },
-  { biome: BiomeType.Desert, minCount: 1, maxCount: 2, minRadius: 700, maxRadius: 1150 },
-  { biome: BiomeType.Tundra, minCount: 1, maxCount: 2, minRadius: 650, maxRadius: 1050 },
-  { biome: BiomeType.Mountain, minCount: 1, maxCount: 2, minRadius: 550, maxRadius: 950 },
-];
+/** Matches BIOME_GRID_CELL_SIZE: a coarser texture would resample the borders down and blur them. */
+const BIOME_TEXTURE_CELL_SIZE = 50;
 
-const BIOME_REGION_MIN_GAP = 150;
-const BIOME_TEXTURE_CELL_SIZE = 80;
-
+// Mais separados em matiz e luminosidade do que eram: enquanto grassland era o fundo de tudo, um
+// contraste sutil bastava. Com o mapa particionado por inteiro, biomas quase iguais viram um borrão.
 const BIOME_COLORS: Record<BiomeType, string> = {
-  [BiomeType.Grassland]: "#1c221b",
-  [BiomeType.Forest]: "#15201a",
-  [BiomeType.Desert]: "#2a2314",
-  [BiomeType.Tundra]: "#1b232a",
-  [BiomeType.Mountain]: "#26262a",
+  [BiomeType.Grassland]: "#25321f",
+  [BiomeType.Forest]: "#152417",
+  [BiomeType.Desert]: "#3b2e18",
+  [BiomeType.Tundra]: "#1f3038",
+  [BiomeType.Mountain]: "#33333a",
 };
 
-function regionContains(x: number, y: number, region: BiomeRegion): boolean {
-  const dx = x - region.center.x;
-  const dy = y - region.center.y;
-  const distSq = dx * dx + dy * dy;
-  const maxRadiusSq = (region.radius * 1.5) ** 2;
 
-  if (distSq > maxRadiusSq) return false;
-
-  return pointInPolygon({ x, y }, region.outline);
-}
-
-function biomeAtRegions(x: number, y: number, regions: BiomeRegion[]): BiomeType {
-  for (const region of regions) {
-    if (regionContains(x, y, region)) return region.biome;
-  }
-
-  return BiomeType.Grassland;
-}
-
-function buildBiomeTexture(width: number, height: number, regions: BiomeRegion[]): HTMLCanvasElement | null {
+function buildBiomeTexture(width: number, height: number, map: BiomeMap): HTMLCanvasElement | null {
   if (typeof document === "undefined") return null;
 
   const cols = Math.ceil(width / BIOME_TEXTURE_CELL_SIZE);
@@ -118,11 +99,15 @@ function buildBiomeTexture(width: number, height: number, regions: BiomeRegion[]
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
+  // Reads the generation grid instead of testing polygons: with a full partition this ran ~4000
+  // point-in-polygon queries against large concave rings.
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const worldX = (col + 0.5) * BIOME_TEXTURE_CELL_SIZE;
       const worldY = (row + 0.5) * BIOME_TEXTURE_CELL_SIZE;
-      ctx.fillStyle = BIOME_COLORS[biomeAtRegions(worldX, worldY, regions)];
+      const region = map.regions[regionIndexAt(map, worldX, worldY)];
+
+      ctx.fillStyle = BIOME_COLORS[region?.biome ?? BiomeType.Grassland];
       ctx.fillRect(col, row, 1, 1);
     }
   }
@@ -138,6 +123,8 @@ export const useWorldStore = defineStore("world", () => {
   const lakes = shallowRef<Lake[]>([]);
   const rivers = shallowRef<Lake[]>([]);
   const biomeRegions = shallowRef<BiomeRegion[]>([]);
+  /** Grid kept from generation: turns biomeAt/regionAt into an array index instead of a polygon walk. */
+  const biomeMap = shallowRef<BiomeMap | null>(null);
   const biomeTexture = shallowRef<HTMLCanvasElement | null>(null);
   const worldSeed = ref<number>(Date.now());
 
@@ -145,9 +132,9 @@ export const useWorldStore = defineStore("world", () => {
   /** Lakes + rivers together — what movement/placement/AI checks should treat as "water." */
   const allWaterBodies = computed<Lake[]>(() => [...lakes.value, ...rivers.value]);
 
-  /** Biome at a world point — Grassland unless inside one of the few placed biome-region blobs. */
+  /** Biome at a world point. The map is fully partitioned, so this always lands in some region. */
   function biomeAt(x: number, y: number): BiomeType {
-    return biomeAtRegions(x, y, biomeRegions.value);
+    return regionAt(x, y)?.biome ?? BiomeType.Grassland;
   }
 
   /**
@@ -167,13 +154,18 @@ export const useWorldStore = defineStore("world", () => {
     return biomeRegions.value.filter((region) => region.biome === biome);
   }
 
-  /** The region containing a point, or null on Grassland. Complements biomeAt when the caller needs the region itself. */
+  /**
+   * The region containing a point. O(1) through the generation grid — with a full partition every
+   * point belongs to a region, so walking polygons per call would be far costlier than when most
+   * points fell through to a default.
+   */
   function regionAt(x: number, y: number): BiomeRegion | null {
-    for (const region of biomeRegions.value) {
-      if (regionContains(x, y, region)) return region;
-    }
+    const map = biomeMap.value;
+    if (!map) return null;
 
-    return null;
+    const index = regionIndexAt(map, x, y);
+
+    return index < 0 ? null : biomeRegions.value[index] ?? null;
   }
 
   function initialize(seed?: number) {
@@ -188,8 +180,29 @@ export const useWorldStore = defineStore("world", () => {
 
     lakes.value = generateLakes(width, height, rng);
     rivers.value = generateRivers(width, height, rng);
-    biomeRegions.value = generateBiomeRegions(width, height, rng);
-    biomeTexture.value = buildBiomeTexture(width, height, biomeRegions.value);
+    const generated = generateBiomeMap({
+      width,
+      height,
+      cellSize: BIOME_GRID_CELL_SIZE,
+      seedCount: BIOME_SEED_COUNT,
+      random: () => rng.next(),
+      // Domain warp: displace the sample before the nearest-seed test, so borders wander.
+      warp: (x, y) => ({
+        x:
+          x +
+          fbm(x * BIOME_WARP_SCALE, y * BIOME_WARP_SCALE, 3) * BIOME_WARP_STRENGTH +
+          fbm(x * BIOME_WARP_DETAIL_SCALE, y * BIOME_WARP_DETAIL_SCALE, 2) * BIOME_WARP_DETAIL_STRENGTH,
+        y:
+          y +
+          fbm((x + 1731) * BIOME_WARP_SCALE, (y - 977) * BIOME_WARP_SCALE, 3) * BIOME_WARP_STRENGTH +
+          fbm((x - 611) * BIOME_WARP_DETAIL_SCALE, (y + 409) * BIOME_WARP_DETAIL_SCALE, 2) *
+            BIOME_WARP_DETAIL_STRENGTH,
+      }),
+    });
+
+    biomeMap.value = generated;
+    biomeRegions.value = generated.regions;
+    biomeTexture.value = buildBiomeTexture(width, height, generated);
   }
 
   function regenerate(seed?: number) {
@@ -522,52 +535,3 @@ function generateRiver(width: number, height: number, rng: RNG): Lake {
 }
 
 /** Places one or two large blobs per biome type — reuses the lake's organic-outline generator, avoiding overlap between regions. */
-function generateBiomeRegions(width: number, height: number, rng: RNG): BiomeRegion[] {
-  const regions: BiomeRegion[] = [];
-
-  for (const spec of BIOME_REGION_SPECS) {
-    const count = rng.intRange(spec.minCount, spec.maxCount);
-
-    for (let i = 0; i < count; i++) {
-      const region = tryPlaceBiomeRegion(width, height, spec, regions, rng);
-      if (region) regions.push(region);
-    }
-  }
-
-  return regions;
-}
-
-function tryPlaceBiomeRegion(
-  width: number,
-  height: number,
-  spec: BiomeRegionSpec,
-  existing: BiomeRegion[],
-  rng: RNG,
-): BiomeRegion | null {
-  const radius = rng.range(spec.minRadius, spec.maxRadius);
-  const margin = Math.max(150, radius * 0.6);
-  const maxTries = 60;
-
-  for (let tries = 0; tries < maxTries; tries++) {
-    const cx = rng.range(margin, width - margin);
-    const cy = rng.range(margin, height - margin);
-
-    let overlaps = false;
-    for (const other of existing) {
-      if (distance({ x: cx, y: cy }, other.center) < radius + other.radius + BIOME_REGION_MIN_GAP) {
-        overlaps = true;
-        break;
-      }
-    }
-
-    if (!overlaps) {
-      const sizeCategory = radius > 900 ? "large" : radius > 500 ? "medium" : "small";
-      const outline = generateOrganicOutline(cx, cy, radius, sizeCategory, rng);
-      const ordinal = existing.filter((region) => region.biome === spec.biome).length;
-
-      return { id: `${spec.biome}-${ordinal}`, biome: spec.biome, center: { x: cx, y: cy }, radius, outline };
-    }
-  }
-
-  return null;
-}

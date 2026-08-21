@@ -23,8 +23,16 @@ export interface BiomeRegion {
   id: string;
   biome: BiomeType;
   center: Position;
+  /** Distance from `center` to the farthest outline point — a loose bound, not a shape. */
   radius: number;
   outline: Position[];
+  /**
+   * Outline bounding box. Needed because merged regions are concave: `center` + `radius` can cover
+   * half the map and reject nothing, the same trap rivers hit in isInWater (PLANS.md section 9).
+   */
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number };
+  /** Grid cells this region occupies — its area, used to compare region sizes. */
+  cellCount?: number;
 }
 
 export enum BiomeType {
