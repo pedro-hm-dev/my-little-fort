@@ -1,9 +1,10 @@
 import { ref, computed, shallowRef } from "vue";
 import { defineStore } from "pinia";
-import { ResourceType, type Resource, TerrainType } from "@/types/Resource";
+import { RESOURCE_ICONS, ResourceType, type Position, type Resource, TerrainType } from "@/types/Resource";
 import resourceDefs from "@/data/resourceDefinitions.json";
 import { useCameraStore } from "@/stores/camera";
 import { useWorldStore } from "@/stores/world";
+import { useNavigationStore } from "@/stores/navigation";
 import type { BiomeType } from "@/types/Terrain";
 import { distance, isInWater, circlesOverlap } from "@/utils/geometry";
 import { getSeededRandom } from "@/utils/noise";
@@ -16,6 +17,12 @@ const GENERATION_CONFIG = {
   mapMargin: 120,
   maxPlacementAttempts: 30,
 } as const;
+
+// Dropped goods: piles this close to each other merge instead of stacking up as separate icons.
+const PILE_MERGE_RADIUS = 60;
+const PILE_ICON_SIZE = 34;
+/** Quick to pick up: it is already processed goods, not a tree to be felled. */
+const PILE_GATHER_TIME = 2;
 
 // Applied to a resource's own clusterChance/clusterSize when the cluster center falls in one of its `denseBiomes`.
 const DENSE_CLUSTER_CHANCE_MULTIPLIER = 1.4;
@@ -41,6 +48,7 @@ export function rollSecondaryYield(type: ResourceType): ResourceType | null {
 export const useResourceStore = defineStore("resources", () => {
   const resources = ref<Map<string, Resource>>(new Map());
   const spatialGrid = shallowRef<SpatialGrid<Resource>>(new SpatialGrid(150));
+  let nextPileId = 1;
 
   const allResources = computed(() => Array.from(resources.value.values()));
 
@@ -83,6 +91,46 @@ export const useResourceStore = defineStore("resources", () => {
     return false;
   }
 
+  /**
+   * Puts goods on the ground because there was nowhere to store them. Merges into a nearby pile of
+   * the same type so a worker emptying a full colony does not litter the map with piles of one.
+   */
+  function dropPile(type: ResourceType, amount: number, position: Position): Resource {
+    if (amount <= 0) throw new Error("dropPile needs a positive amount");
+
+    // Never inside a solid body: a pile no one can walk up to is a pile that never comes back.
+    const spot = useNavigationStore().freeSpotNear(position);
+
+    for (const nearby of spatialGrid.value.queryRadius(spot.x, spot.y, PILE_MERGE_RADIUS)) {
+      if (!nearby.dropped || nearby.type !== type) continue;
+
+      nearby.amount += amount;
+      nearby.maxAmount = Math.max(nearby.maxAmount, nearby.amount);
+
+      return nearby;
+    }
+
+    const pile: Resource = {
+      id: `pile-${type}-${nextPileId++}`,
+      type,
+      position: { x: spot.x, y: spot.y },
+      amount,
+      maxAmount: amount,
+      iconName: RESOURCE_ICONS[type],
+      iconSize: PILE_ICON_SIZE,
+      gatherTime: PILE_GATHER_TIME,
+      possibleTerrainTypes: ["land", "water"],
+      dropped: true,
+    };
+
+    addResource(pile);
+
+    return pile;
+  }
+
+  /** Everything sitting on the ground waiting to be hauled back in. */
+  const droppedPiles = computed(() => allResources.value.filter((resource) => resource.dropped));
+
   /** Ages carcasses by the game delta and clears the ones that rotted through. Called every frame. */
   function decayCarcasses(gameDeltaMs: number) {
     if (gameDeltaMs <= 0) return;
@@ -116,7 +164,9 @@ export const useResourceStore = defineStore("resources", () => {
   return {
     resources,
     allResources,
+    droppedPiles,
     addResource,
+    dropPile,
     removeResource,
     getResource,
     getResourcesInRadius,

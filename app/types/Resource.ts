@@ -15,6 +15,11 @@ export interface Resource {
   contents?: ResourceType[];
   /** Carcass only — remaining game-time before it rots away. */
   decayRemainingMs?: number;
+  /**
+   * Goods that were dropped because every store was full, not something that grew here. An idle
+   * unit fetches these back the moment there is room for them again.
+   */
+  dropped?: boolean;
 }
 
 export enum ResourceType {

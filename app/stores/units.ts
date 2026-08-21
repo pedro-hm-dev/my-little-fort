@@ -92,8 +92,11 @@ export const useUnitStore = defineStore("units", () => {
   const worldStore = useWorldStore();
 
   const pendingReproduction = ref<{ fortId: string; targetType: UnitType } | null>(null);
+  let idleHaulTimer = 0;
 
   function startPendingReproduction(fortId: string, targetType: UnitType) {
+    if (isAtPopulationCap()) return;
+
     pendingReproduction.value = { fortId, targetType };
   }
 
@@ -129,6 +132,16 @@ export const useUnitStore = defineStore("units", () => {
     if (unit) units.value.set(id, { ...unit, ...updates });
   }
 
+  /**
+   * Live units, counting the ones sheltered inside structures. Reproduction is the only way a unit
+   * enters the game, so the housing cap only has to be checked there (PLANS.md section 14).
+   */
+  const population = computed(() => allUnits.value.length);
+
+  function isAtPopulationCap(): boolean {
+    return population.value >= useStructureStore().housingCapacity;
+  }
+
   /** Send a selected map unit into the fort to reproduce, creating a new unit of targetType. */
   function startReproduction(unitId: string, targetType: UnitType, fortId: string) {
     const unit = units.value.get(unitId);
@@ -141,6 +154,7 @@ export const useUnitStore = defineStore("units", () => {
 
     const def = structureDefOf(fort);
     if (structureOccupancy(fortId) >= (def.maxOccupancy ?? Infinity)) return;
+    if (isAtPopulationCap()) return;
 
     pendingReproduction.value = null;
 
@@ -229,6 +243,8 @@ export const useUnitStore = defineStore("units", () => {
 
   /** How much material a unit carries per trip to a building site. */
   const HAUL_LOAD = 12;
+  /** How often idle units are offered dropped goods to haul. */
+  const IDLE_HAUL_CHECK_MS = 400;
   /** Each extra worker in a structure contributes this share of the previous one. */
   const WORKER_DIMINISHING_RETURN = 0.6;
   /** Slack on top of the site's solid body: how close counts as "at the site". */
@@ -643,6 +659,63 @@ export const useUnitStore = defineStore("units", () => {
     return best;
   }
 
+  /** Nothing to do: no order of any kind, and not shut inside a structure. */
+  function isIdle(unit: Unit): boolean {
+    return (
+      !unit.insideFortId &&
+      !unit.targetPosition &&
+      !unit.targetResource &&
+      !unit.combatTargetId &&
+      !unit.buildTargetId &&
+      !unit.shelterTargetId &&
+      !unit.actionLock
+    );
+  }
+
+  /**
+   * Hands dropped goods to whoever has nothing better to do, closest pile first, and only when some
+   * store would actually take that type — otherwise the haul would end with the pile back on the
+   * ground. Checked a few times a second rather than every frame.
+   */
+  function assignIdleHauling(gameDeltaMs: number) {
+    idleHaulTimer += gameDeltaMs;
+    if (idleHaulTimer < IDLE_HAUL_CHECK_MS) return;
+
+    idleHaulTimer = 0;
+
+    const resourceStore = useResourceStore();
+    const piles = resourceStore.droppedPiles;
+    if (piles.length === 0) return;
+
+    const structureStore = useStructureStore();
+    const haulable = piles.filter((pile) => structureStore.nearestStorageAccepting(pile.type, pile.position) !== null);
+    if (haulable.length === 0) return;
+
+    const claimed = new Set<string>();
+
+    for (const unit of units.value.values()) {
+      if (!isIdle(unit)) continue;
+
+      let target: Resource | null = null;
+      let bestDistance = Infinity;
+
+      for (const pile of haulable) {
+        if (claimed.has(pile.id)) continue;
+
+        const gap = distance(unit.position, pile.position);
+        if (gap >= bestDistance) continue;
+
+        bestDistance = gap;
+        target = pile;
+      }
+
+      if (!target) break;
+
+      claimed.add(target.id);
+      gatherResource([unit.id], target.id);
+    }
+  }
+
   function updateUnitPositions(gameDeltaMs: number) {
     const resourceStore = useResourceStore();
     const inventoryStore = useInventoryStore();
@@ -679,6 +752,12 @@ export const useUnitStore = defineStore("units", () => {
         const distSq = dx * dx + dy * dy;
 
         if (distSq < 50 * 50) {
+          // Uma pilha caída só faz sentido recolher se existe onde guardar; senão ela voltaria ao chão.
+          if (resource.dropped && !useStructureStore().nearestStorageAccepting(resource.type, unit.position)) {
+            units.value.set(unit.id, { ...unit, ...nextGatherState(unit.gatherQueue) });
+            continue;
+          }
+
           const gatherRate = (unit.efficiency / resource.gatherTime) * deltaMultiplier;
           const newProgress = (unit.gatherProgress || 0) + gatherRate;
 
@@ -790,10 +869,13 @@ export const useUnitStore = defineStore("units", () => {
     attackArea,
     gatherAll,
     shelterUnitsAt,
+    assignIdleHauling,
     structureOccupancy,
     workerEfficiencyAt,
     updateUnitPositions,
     initialize,
+    population,
+    isAtPopulationCap,
     pendingReproduction,
     startPendingReproduction,
     clearPendingReproduction,

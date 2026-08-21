@@ -2,6 +2,7 @@ import { computed } from "vue";
 import { defineStore } from "pinia";
 import { ResourceType, type Position } from "@/types/Resource";
 import { useStructureStore } from "./structures";
+import { useResourceStore } from "./resources";
 
 export interface InventoryItem {
   type: ResourceType;
@@ -44,8 +45,9 @@ export const useInventoryStore = defineStore("inventory", () => {
 
   /**
    * Files the resource into the closest storage that will take it, spilling into the next one when
-   * that fills. When every storage is full it still goes to the fort: refusing it would mean losing
-   * a gathered resource, and what to do at capacity is section 13's call, not this store's.
+   * that fills. What no store will take goes on the ground where the carrier is standing, and an
+   * idle unit hauls it back in once there is room — the storage cap is real, but nothing is lost.
+   * Returns how much made it indoors.
    */
   function addResource(type: ResourceType, amount: number = 1, near: Position | null = null): number {
     let left = amount;
@@ -61,13 +63,9 @@ export const useInventoryStore = defineStore("inventory", () => {
     }
 
     if (left > 0) {
-      const fort = structureStore.getStructure("fort-1");
+      const spot = near ?? structureStore.fortPosition;
 
-      if (fort) {
-        if (!fort.inventory) fort.inventory = {};
-        fort.inventory[type] = (fort.inventory[type] ?? 0) + left;
-        left = 0;
-      }
+      if (spot) useResourceStore().dropPile(type, left, spot);
     }
 
     return amount - left;

@@ -341,6 +341,7 @@ const gameLoop = (timestamp: number) => {
   navigationStore.beginFrame();
   unitStore.updateUnitPositions(gameDeltaMs);
   unitStore.updateFortUnits(gameDeltaMs);
+  unitStore.assignIdleHauling(gameDeltaMs);
   enemyStore.updateEnemyAI(gameDeltaMs);
   combatStore.updateCombat(gameDeltaMs);
   resourceStore.decayCarcasses(gameDeltaMs);
@@ -430,6 +431,7 @@ const render = () => {
     if (!circleOnScreen(resource.position.x, resource.position.y, resource.iconSize / 2, view)) continue;
 
     drawEntityIconSync(ctx, resource, resource.position, { size: resource.iconSize });
+    if (resource.dropped) drawDroppedMarker(resource);
   }
 
   for (const structure of structures) {
@@ -568,6 +570,23 @@ const drawHealthBar = (position: { x: number; y: number }, iconSize: number, hea
   ctx.fillRect(x, y, width, height);
   ctx.fillStyle = ratio > 0.3 ? "#4ade80" : "#ef4444";
   ctx.fillRect(x, y, width * ratio, height);
+};
+
+/**
+ * Goods on the ground are the same icon as the resource, so a dashed ring is what separates a pile
+ * of logs waiting to be hauled in from the tree it came from.
+ */
+const drawDroppedMarker = (resource: { position: { x: number; y: number }; iconSize: number }) => {
+  if (!ctx) return;
+
+  ctx.save();
+  ctx.strokeStyle = "#fbbf24";
+  ctx.lineWidth = 1.5 / camera.zoom;
+  ctx.setLineDash([5 / camera.zoom, 4 / camera.zoom]);
+  ctx.beginPath();
+  ctx.arc(resource.position.x, resource.position.y, resource.iconSize * 0.7, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
 };
 
 /**

@@ -112,6 +112,14 @@ export const useNavigationStore = defineStore("navigation", () => {
     return segmentIsClear(navGrid, from, to);
   }
 
+  /** Nearest spot something can actually be stood on or picked up from. */
+  function freeSpotNear(position: Position): Position {
+    const navGrid = grid.value;
+    if (!navGrid || !isBlockedAt(navGrid, position.x, position.y)) return position;
+
+    return nearestOpenPoint(navGrid, position.x, position.y) ?? position;
+  }
+
   function hasLineOfSight(from: Position, to: Position): boolean {
     return grid.value ? segmentClear(grid.value, from, to) : true;
   }
@@ -217,5 +225,15 @@ export const useNavigationStore = defineStore("navigation", () => {
     return advanceAlong(navGrid, entity, path);
   }
 
-  return { grid, rebuild, startWatchingStructures, beginFrame, isBlocked, hasLineOfSight, routeTo, clearPath };
+  return {
+    grid,
+    rebuild,
+    startWatchingStructures,
+    beginFrame,
+    isBlocked,
+    freeSpotNear,
+    hasLineOfSight,
+    routeTo,
+    clearPath,
+  };
 });

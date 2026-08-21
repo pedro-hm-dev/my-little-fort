@@ -64,7 +64,18 @@
     <div v-if="canReproduce.length > 0" class="px-4 pb-4 pt-3 space-y-1.5">
       <p class="text-xs text-green-800 uppercase tracking-widest mb-3 flex items-baseline justify-between">
         <span>Recrutar</span>
-        <span v-if="isFull" class="text-red-800">Lotado</span>
+
+        <span v-if="atPopulationCap" class="text-red-800">Sem moradia</span>
+
+        <span v-else-if="isFull" class="text-red-800">Lotado</span>
+      </p>
+
+      <p class="text-xs text-green-800 flex items-baseline justify-between pb-1">
+        <span class="uppercase tracking-widest">População</span>
+
+        <span :class="atPopulationCap ? 'text-red-400' : 'text-green-500'">
+          {{ unitStore.population }} / {{ structureStore.housingCapacity }}
+        </span>
       </p>
 
       <div
@@ -87,11 +98,11 @@
         <button
           class="shrink-0 px-2 py-1 text-xs font-mono border transition-colors uppercase tracking-widest"
           :class="
-            isFull
+            cannotRecruit
               ? 'border-green-900/30 text-green-900 opacity-40 cursor-not-allowed'
               : 'border-green-500/40 bg-green-500/10 text-green-300 hover:bg-green-500/20'
           "
-          :disabled="isFull"
+          :disabled="cannotRecruit"
           @click="unitStore.startPendingReproduction(structure.id, type as UnitType)"
         >
           reproduzir
@@ -103,6 +114,7 @@
 
 <script setup lang="ts">
 import { useUnitStore } from "@/stores/units";
+import { useStructureStore } from "@/stores/structures";
 import { UnitType, type Unit } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
 import unitDefs from "@/data/unitDefinitions.json";
@@ -113,6 +125,7 @@ type UnitDefKey = keyof typeof unitDefs;
 const props = defineProps<{ structure: Structure }>();
 
 const unitStore = useUnitStore();
+const structureStore = useStructureStore();
 
 const structureDef = computed(() => structureDefs[props.structure.type as keyof typeof structureDefs]);
 const canReproduce = computed(() => (structureDef.value as { canReproduce?: string[] }).canReproduce ?? []);
@@ -120,6 +133,8 @@ const maxOccupancy = computed(() => (structureDef.value as { maxOccupancy?: numb
 
 const inFort = computed(() => unitStore.unitsInsideFort(props.structure.id));
 const isFull = computed(() => maxOccupancy.value !== undefined && inFort.value.length >= maxOccupancy.value);
+const atPopulationCap = computed(() => unitStore.population >= structureStore.housingCapacity);
+const cannotRecruit = computed(() => isFull.value || atPopulationCap.value);
 
 function unitLabel(type: string): string {
   return (unitDefs[type as UnitDefKey] as { label: string })?.label ?? type;

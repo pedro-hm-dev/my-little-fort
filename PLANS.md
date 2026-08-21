@@ -714,34 +714,38 @@ A forja ainda não produz nada: o crafting depende do inventário das unidades (
 
 ### O que ficou de fora, de propósito
 
-- **Teto de estoque não é obrigatório ainda.** A capacidade é somada e mostrada (`700` com forte + estoque), e o roteamento respeita espaço livre, mas quando **tudo** está cheio o excedente ainda entra no forte em vez de sumir — perder recurso coletado é decisão da seção 13, não deste sistema. Hoje o painel pode mostrar `840 / 700`.
-- **Teto de população não é aplicado.** `housingCapacity` já existe e soma certo; quem barra a reprodução é a seção 14.
+- **Teto de estoque e teto de população** ficaram para as seções 13 e 14, que foram feitas na sequência.
 - **Unidade não carrega para coletar.** A coleta continua creditando na hora (no depósito mais próximo). Carga e slots são a seção 15; o transporte de obra já é o mesmo mecanismo que ela vai reusar.
 - **Muralha não entrou.** Agora é possível (seção 20 está feita), mas `stampCircle` é círculo e muralha é segmento.
 
 ---
 
-## 13. Limite de inventário por estrutura — PLANEJADO (depende de 12)
+## 13. Limite de inventário por estrutura — IMPLEMENTADO
 
-Metade já existe depois da seção 12: `storage` e `storageKind` estão nas definições, `inventoryStore.capacity` soma o `storage` das estruturas prontas, o painel mostra ocupação por estrutura e o roteamento de depósito respeita espaço livre por estoque.
+O teto passou a valer de verdade, e a resposta ao encher é a do Banished: **o excedente fica no chão**.
 
-**O que falta é só o teto ser obrigatório.** Hoje, quando todo estoque está cheio, o excedente ainda entra no forte — o painel chega a mostrar `840 / 700`. Fechar isso é a decisão abaixo.
+- `addResource` guarda o que cabe no estoque mais próximo que aceita o tipo, transborda para o próximo, e o que sobrar cai como **pilha no chão** onde quem carregava estava. Devolve quanto entrou.
+- A pilha é um `Resource` normal com `dropped: true`, ícone do próprio recurso e `gatherTime` curto (2 — é mercadoria já processada, não árvore para derrubar). **Não apodrece**, ao contrário da carcaça.
+- **Pilhas do mesmo tipo a até 60 unidades se fundem**, senão um trabalhador esvaziando uma colônia cheia deixaria um rastro de pilhas de 1.
+- **A pilha nunca cai dentro de corpo sólido.** `dropPile` empurra o ponto para a célula andável mais próxima via a grade de navegação — descoberto por teste, porque uma pilha largada no centro do forte ficava a 82 do centro e o alcance de coleta é 50: ninguém conseguia pegá-la nunca mais.
+- **Ocioso recolhe.** `assignIdleHauling` (a cada 400ms de jogo) oferece a pilha mais próxima a quem não tem ordem nenhuma — e **só quando algum estoque aceitaria aquele tipo**, senão o carregamento terminaria com a pilha de volta no chão. Coletar já deposita no depósito mais perto, então recolher é uma ordem de coleta comum.
+- **Coletar pilha sem lugar para guardar cancela a ordem** em vez de girar em falso: a pilha voltaria ao chão a 50 de distância, dentro do raio de fusão, e a unidade coletaria para sempre sem progresso.
 
-**Decisão aberta — o que acontece ao encher?** As opções mudam o feel: a coleta para sozinha (menos frustrante, mas exige feedback claro de por que os workers pararam), o excedente é descartado (simples e cruel), ou o recurso fica no chão como carcaça (reusa a seção 3b inteira, e é o mais interessante).
+Consequência de design que vale notar: encher o estoque não trava mais nada, mas espalha material pelo mapa, e construir um estoque novo **destrava o recolhimento sozinho** — os ociosos varrem o chão sem nenhuma ordem do jogador.
 
-Outra: o teto é **global** ou **por tipo de recurso**? Global é mais simples; por tipo obriga a planejar espaço.
+**Ainda em aberto:** o teto é global por estrutura, não por tipo de recurso. Por tipo obrigaria a planejar espaço e é mais interessante, mas nenhum sistema pede isso hoje.
 
 ---
 
-## 14. Teto de população — PLANEJADO (depende de 12)
+## 14. Teto de população — IMPLEMENTADO
 
-Cuidado com um nome já ocupado: **`maxOccupancy: 10` já existe** no forte, mas significa *quantos caibam dentro do abrigo* — é usado por `structureOccupancy` e `shelterUnitsAt`. O que falta é diferente: **quantas unidades o jogador pode ter no total**. Usar o mesmo campo para as duas coisas vai confundir; sugiro **`housing`** para o novo.
+`populationCap` é `structureStore.housingCapacity` — soma de `housing` das estruturas **prontas**: forte 10, casa 4, abrigo 12. Canteiro não conta.
 
-- `populationCap` = soma de `housing` das estruturas prontas. **Já existe** como `structureStore.housingCapacity` desde a seção 12: forte dá 10, casa 4, abrigo 12. Falta alguém obedecer.
-- `startReproduction` (`app/stores/units.ts`) passa a recusar quando `allUnits.length >= populationCap`. É o ponto único por onde unidade nova entra no jogo, então basta ali.
-- O `UnitsTab.vue` já mostra `inFort.length / maxOccupancy`; ganha uma linha de população total, e o botão de reproduzir desabilita com o motivo visível ("sem moradia").
+- `startReproduction` recusa quando `population >= housingCapacity`, e `startPendingReproduction` nem arma o comando. Reprodução é o único caminho de entrada de unidade no jogo, então esses dois pontos bastam.
+- O `UnitsTab` ganhou a linha **População x / y**, em vermelho no teto, e o botão de reproduzir desabilita com "Sem moradia" — distinto de "Lotado", que é a ocupação daquela estrutura específica.
+- `maxOccupancy` continua significando outra coisa (quantos caibam dentro), como o plano avisava: são campos separados e o painel mostra os dois.
 
-Sem teto máximo: casas somam indefinidamente. Vale lembrar que o custo real de população alta é a comida (seção 2) e a performance (seção 9).
+Sem teto máximo: casas somam indefinidamente. O custo real de população alta continua sendo a comida (seção 2) e a performance (seção 9).
 
 ---
 
@@ -989,8 +993,8 @@ Decisão aberta: conforto é **por unidade** (cada uma carrega o seu, mais fiel 
 10. **Alcance derivado** (seção 10) — FEITO.
 11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
 12. **Construção** (seção 12) — FEITO. Canteiro, transporte, cinco estruturas, estoque com posição física e fibra vegetal.
-13. **Teto de inventário** (seção 13) — quase tudo pronto na 12; falta o teto ser obrigatório.
-14. **Teto de população** (seção 14) — `housingCapacity` já existe; falta `startReproduction` obedecer.
+13. **Teto de inventário** (seção 13) — FEITO. Excedente vai ao chão e ocioso recolhe, como no Banished.
+14. **Teto de população** (seção 14) — FEITO. `housingCapacity` das estruturas prontas barra a reprodução.
 15. **Inventário e equipamento das unidades** (seção 15) — depende de 12; o `baseAttack`/`baseDefense` já existe (seção 19).
 16. **Prestígio e rogue-lite** (seção 16) — independente das outras; a tela de meta-progressão é a maior peça.
 17. **Painel de unidades** (seção 17) — independente, e todo o estado necessário já existe.
