@@ -33,6 +33,7 @@ export enum ResourceType {
   LegendaryFang = "legendaryFang",
   Egg = "egg",
   Poison = "poison",
+  PlantFiber = "plantFiber",
   /** A dead enemy's droppable loot, sitting on the map until gathered or rotted. */
   Carcass = "carcass",
 }
@@ -55,6 +56,7 @@ export const RESOURCE_ICONS: Record<ResourceType, string> = {
   [ResourceType.LegendaryFang]: "bestial-fangs",
   [ResourceType.Egg]: "egg-clutch",
   [ResourceType.Poison]: "poison-bottle",
+  [ResourceType.PlantFiber]: "herbs-bundle",
 };
 
 /** Resource types units eat — the daily ration comes out of these, see stores/food.ts. */

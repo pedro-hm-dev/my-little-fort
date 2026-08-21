@@ -129,6 +129,7 @@ const resourceColors: Record<ResourceType, string> = {
   [ResourceType.Poison]: "#65a30d",
   [ResourceType.Egg]: "#fef08a",
   [ResourceType.Carcass]: "#7f1d1d",
+  [ResourceType.PlantFiber]: "#84cc16",
 };
 
 const resourceNames: Record<ResourceType, string> = {
@@ -148,6 +149,7 @@ const resourceNames: Record<ResourceType, string> = {
   [ResourceType.Poison]: "Veneno",
   [ResourceType.Egg]: "Ovo",
   [ResourceType.Carcass]: "Carcaça",
+  [ResourceType.PlantFiber]: "Fibra Vegetal",
 };
 
 const sortedInventory = computed(() =>

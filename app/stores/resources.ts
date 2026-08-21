@@ -21,6 +21,23 @@ const GENERATION_CONFIG = {
 const DENSE_CLUSTER_CHANCE_MULTIPLIER = 1.4;
 const DENSE_CLUSTER_SIZE_MULTIPLIER = 1.7;
 
+// Keyed by resource type, not by def key: the two differ ("mushrooms" holds type "mushroom").
+const SECONDARY_YIELDS = new Map<string, { type: ResourceType; chance: number }>();
+
+for (const [, def] of Object.entries(resourceDefs) as [string, ResourceDefinition][]) {
+  if (!def.secondaryYield) continue;
+
+  SECONDARY_YIELDS.set(def.type, { type: def.secondaryYield.type as ResourceType, chance: def.secondaryYield.chance });
+}
+
+/** The extra type this resource sometimes drops, or null. Rolled per gather tick by the caller. */
+export function rollSecondaryYield(type: ResourceType): ResourceType | null {
+  const yield_ = SECONDARY_YIELDS.get(type);
+  if (!yield_) return null;
+
+  return Math.random() < yield_.chance ? yield_.type : null;
+}
+
 export const useResourceStore = defineStore("resources", () => {
   const resources = ref<Map<string, Resource>>(new Map());
   const spatialGrid = shallowRef<SpatialGrid<Resource>>(new SpatialGrid(150));
@@ -137,6 +154,8 @@ interface ResourceDefinition {
   requiredBiomes?: string[];
   /** Biomes where this resource clusters more densely (bigger/likelier clusters). */
   denseBiomes?: string[];
+  /** Rolled on every gather tick on top of the resource's own type — plant matter yields fibre. */
+  secondaryYield?: { type: string; chance: number };
   spawning?: SpawningConfig;
 }
 

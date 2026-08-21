@@ -8,7 +8,7 @@ import unitDefs from "@/data/unitDefinitions.json";
 import structureDefs from "@/data/structureDefinitions.json";
 import { useStructureStore } from "./structures";
 import { useWorldStore } from "./world";
-import { useResourceStore } from "./resources";
+import { useResourceStore, rollSecondaryYield } from "./resources";
 import { useInventoryStore } from "./inventory";
 import { useSelectionStore } from "./selection";
 import { useEnemyStore } from "./enemies";
@@ -517,6 +517,7 @@ export const useUnitStore = defineStore("units", () => {
             // A carcass yields whatever loot is left inside it; every other resource yields its own type.
             const collected = resource.contents?.shift() ?? resource.type;
             const depleted = resourceStore.depleteResource(unit.targetResource, 1);
+            const secondary = rollSecondaryYield(resource.type);
 
             inventoryStore.addResource(collected, 1);
             effectsStore.spawn({
@@ -528,6 +529,19 @@ export const useUnitStore = defineStore("units", () => {
               iconName: RESOURCE_ICONS[collected] ?? resource.iconName,
               durationMs: 900,
             });
+
+            if (secondary) {
+              inventoryStore.addResource(secondary, 1);
+              effectsStore.spawn({
+                kind: "gatherNumber",
+                x: unit.position.x,
+                y: unit.position.y,
+                offsetX: (Math.random() - 0.5) * 20 + 18,
+                amount: 1,
+                iconName: RESOURCE_ICONS[secondary],
+                durationMs: 900,
+              });
+            }
 
             if (depleted) {
               units.value.set(unit.id, { ...unit, ...nextGatherState(unit.gatherQueue) });

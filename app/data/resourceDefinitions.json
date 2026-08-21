@@ -11,6 +11,7 @@
     "preferredBiomes": ["forest", "grassland"],
     "excludedBiomes": ["desert"],
     "denseBiomes": ["forest"],
+    "secondaryYield": { "type": "plantFiber", "chance": 0.3 },
     "spawning": {
       "mode": "cluster",
       "clusterSize": [3, 8],
@@ -83,6 +84,7 @@
     "gatherTime": 5,
     "scatterRadius": 25,
     "possibleTerrainTypes": ["water"],
+    "secondaryYield": { "type": "plantFiber", "chance": 0.45 },
     "spawning": {
       "mode": "random",
       "clusterChance": 0.7,
@@ -106,6 +108,26 @@
       "clusterSize": [2, 5],
       "clusterRadius": 80,
       "clusterChance": 0.6
+    }
+  },
+
+  "plantFiber": {
+    "type": "plantFiber",
+    "amountRange": [8, 20],
+    "iconName": "high-grass",
+    "iconSize": 38,
+    "rarity": 1,
+    "gatherTime": 3,
+    "scatterRadius": 35,
+    "possibleTerrainTypes": ["land"],
+    "preferredBiomes": ["grassland", "forest"],
+    "excludedBiomes": ["desert", "mountain"],
+    "denseBiomes": ["grassland"],
+    "spawning": {
+      "mode": "cluster",
+      "clusterSize": [3, 7],
+      "clusterRadius": 110,
+      "clusterChance": 0.75
     }
   },
 
