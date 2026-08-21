@@ -4,6 +4,7 @@ import { useTimeStore } from "./time";
 import { useEnemyStore } from "./enemies";
 import { useStructureStore } from "./structures";
 import { useFoodStore } from "./food";
+import { useNestStore } from "./nests";
 
 // Must match FULL_DAY_MS_AT_X1 in time.ts
 const FULL_DAY_GAME_MS = 300_000;
@@ -61,8 +62,9 @@ export const useGameStore = defineStore("game", () => {
 
     watch(
       () => timeStore.day,
-      () => {
+      (day) => {
         useFoodStore().consumeDailyFood();
+        useNestStore().checkRespawns(day);
       },
     );
   }

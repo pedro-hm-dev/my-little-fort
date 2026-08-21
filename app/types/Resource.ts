@@ -31,6 +31,7 @@ export enum ResourceType {
   WhiteMeat = "whiteMeat",
   Fat = "fat",
   LegendaryFang = "legendaryFang",
+  Egg = "egg",
   Poison = "poison",
   /** A dead enemy's droppable loot, sitting on the map until gathered or rotted. */
   Carcass = "carcass",
@@ -52,6 +53,7 @@ export const RESOURCE_ICONS: Record<ResourceType, string> = {
   [ResourceType.WhiteMeat]: "chicken-leg",
   [ResourceType.Fat]: "fat",
   [ResourceType.LegendaryFang]: "bestial-fangs",
+  [ResourceType.Egg]: "egg-clutch",
   [ResourceType.Poison]: "poison-bottle",
 };
 
@@ -64,6 +66,7 @@ export const FOOD_RESOURCE_TYPES: ResourceType[] = [
   ResourceType.Algae,
   ResourceType.WhiteMeat,
   ResourceType.Fat,
+  ResourceType.Egg,
 ];
 
 export interface Position {

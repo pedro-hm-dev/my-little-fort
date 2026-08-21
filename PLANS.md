@@ -303,40 +303,49 @@ Quem liga o `enraged` é o saque do ninho, na seção 6.
 
 ---
 
-## 6. Ninho: entidade, saque, escolha do jogador, respawn
+## 6. Ninho: entidade, saque, escolha do jogador, respawn — IMPLEMENTADO
 
-### Nova store `app/stores/wormNests.ts`
+Mecânica **genérica**, não exclusiva do verme: qualquer def com `behavior: "territorial"` ganha nest automaticamente, sem nenhum código específico por espécie — hoje só existe `sandWorm`, mas um segundo inimigo territorial (outro bicho, outro bioma) herdaria o ninho só por ter esse `behavior` e um `nestLoot` no JSON.
+
+### Store `app/stores/nests.ts`
 
 ```ts
-interface WormNest {
+interface Nest {
   id: string;
   regionId: string;       // qual BiomeRegion
-  position: Position;      // = nestPosition do verme
-  wormEnemyId: string | null; // id do verme vivo atual, se houver
-  state: "unclaimed" | "cooldown"; // "unclaimed" = baú disponível pra escolha
-  respawnAtDay: number | null;     // quando volta a existir um verme aqui
+  enemyType: EnemyType;    // qual def de inimigo territorial este ninho pertence
+  position: Position;      // = nestPosition do guardião
+  enemyId: string | null;  // id do guardião vivo atual, se houver
+  state: "unclaimed" | "cooldown"; // "unclaimed" = saque disponível pra escolha
+  respawnAtDay: number | null;     // quando volta a existir um guardião aqui
 }
 ```
 
-- `initialize()`: um nest por verme gerado (seção 5).
+`enemyType` não estava no desenho original da interface — entrou porque `checkRespawns` precisa saber **qual** def territorial recriar na região; guardar a chave evita hardcode do tipo e é o que torna a store agnóstica de espécie.
+
+- `initialize()`: um nest por inimigo territorial já existente na store de inimigos (chamado depois de `enemyStore.initialize()`, tanto no boot quanto no `regenerateWorld` do `World.vue`).
 - `raid(nestId, choice: "eggs" | "loot" | "cancel")`:
-  - `"eggs"`: `inventoryStore.addResource(Egg, rolagem generosa ex. 15-30)`; agenda respawn em `baseWeeks * 3` (200% a mais, não acumulado — sempre 3x a base, nunca 9x).
-  - `"loot"`: aplica um novo `nestLoot: LootDrop[]` do def do verme (separado do `lootTable` de combate normal — matar o verme em combate dropa o de sempre; saquear o ninho dropa esse outro, mais temático de tesouro: fat/meatWhite/legendaryFang). Agenda respawn em `baseWeeks` (1 semana = 7 dias de jogo).
-  - `"cancel"`: não muda nada, baú continua disponível.
-  - Em qualquer escolha que não seja cancelar: se `wormEnemyId` aponta pra um verme ainda vivo, seta `enraged: true` nele (consequência confirmada: saquear com o verme vivo o deixa agressivo).
-- `checkRespawns(day)`: chamado do mesmo watcher de dia que já existe (`app/stores/game.ts`, `startDayWatcher`) — quando `day >= respawnAtDay`, gera um novo verme na região (nova rota, reaproveita o `nestPosition`) e volta o nest pra `state: "unclaimed"` já apontando pro novo verme (o baú também "reabastece" nesse momento, pronto pra ser saqueado de novo).
+  - `"eggs"`: `inventoryStore.addResource(Egg, 15-30)`; agenda respawn em `7 * 3 = 21` dias.
+  - `"loot"`: rola o `nestLoot: LootDrop[]` novo do def do inimigo dono do nest (no verme: fat/whiteMeat/legendaryFang, separado do `lootTable` de combate); agenda respawn em `7` dias.
+  - `"cancel"`: no-op.
+  - Em qualquer escolha que não seja cancelar: se `enemyId` aponta pra um guardião ainda vivo, seta `enraged: true` nele.
+- `checkRespawns(day)`: chamado do watcher de dia já existente (`app/stores/game.ts`). Reaproveita `enemies.ts`/`spawnTerritorialInRegion` (extraído de `spawnTerritorial`, que agora só faz o loop de regiões e delega a esta função) passando o `nest.position` original como `pinnedNestPosition` — a rota de patrulha é nova, mas o ninho fica sempre no mesmo lugar, como o plano original pedia.
 
 ### UI: escolha ao clicar no ninho
 
-`app/components/World.vue`: ninho renderizado com ícone de baú (`locked-chest` normalmente, `open-treasure-chest` se `state==="cooldown"`), no mesmo laço que já desenha estruturas/recursos. Clique nele (mesmo padrão de hit-test já usado pra unidade/estrutura/recurso) abre um modal novo, `app/components/NestRaidModal.vue` (reaproveitando `UModal` do Nuxt UI, como o resto do app já usa `USlideover`/`UTooltip`): 3 botões — Coletar ovos / Manter e saquear / Cancelar — chamando `wormNestsStore.raid(...)`. Se `state==="cooldown"`, o modal só informa "respawna no dia X" em vez das opções.
+`app/components/World.vue`: ninho renderizado com `drawIconSync` (não `drawEntityIconSync` — o nest não é `Structure`/`Unit`/`Resource`/`Enemy`, só uma posição + estado), ícone `nest-eggs` normalmente (ninho cheio, disponível pra saque), `crow-nest` em `cooldown` (ninho vazio), tamanho fixo em unidades de mundo (`NEST_ICON_SIZE = 40`, escala com o zoom como qualquer entidade — ao contrário do marcador de fome, que é fixo na tela). Clique nele (mesmo padrão de hit-test circular já usado pra unidade/estrutura/recurso) abre `app/components/NestRaidModal.vue` (`UModal`, tema mono/verde igual ao `StructurePanel`/`ResourcePanel`): título mostra o `label` do def do dono do nest (hoje sempre "Verme de Areia", mas dinâmico), 3 botões — Coletar ovos / Manter e saquear / Cancelar — chamando `nestStore.raid(...)`. Em `cooldown` o modal só mostra "respawna no dia X".
 
 ### Arquivos afetados
 
-- `app/stores/wormNests.ts` (novo).
-- `app/data/enemyDefinitions.json`: `nestLoot` no `leechingWorm`.
-- `app/components/World.vue`: render do ninho + hit-test de clique.
+- `app/stores/nests.ts` (novo).
+- `app/stores/enemies.ts`: `spawnTerritorialInRegion` extraído de `spawnTerritorial`, exposto pra store de nests reusar no respawn.
+- `app/types/Resource.ts`: `ResourceType.Egg`, ícone `egg-clutch`, entrou em `FOOD_RESOURCE_TYPES`.
+- `app/components/ResourcePanel.vue`: cor/nome do ovo (senão quebra o `Record<ResourceType, string>`, mesma armadilha da seção 5).
+- `app/utils/iconRenderer.ts`: `NEST_ICONS` (mesmo padrão do `STATUS_ICONS`), preload.
+- `app/data/enemyDefinitions.json`: `nestLoot` no `sandWorm`.
+- `app/components/World.vue`: render do ninho, cursor de hover, hit-test de clique, `nestStore.initialize()` no boot e no `regenerateWorld`.
 - `app/components/NestRaidModal.vue` (novo).
-- `app/stores/game.ts`: chamar `wormNestsStore.checkRespawns(day)` no watcher de dia já existente.
+- `app/stores/game.ts`: `nestStore.checkRespawns(day)` no watcher de dia já existente.
 
 ---
 
@@ -761,7 +770,7 @@ Store nova `app/stores/prestige.ts`, **persistente entre partidas** (localStorag
 | Evento | Onde engatar |
 | ------ | ------------ |
 | Derrotar inimigo | `updateCombat`, onde `dropCarcass` já é chamado na morte |
-| Saquear ninho | `wormNests.raid` (o seu trabalho de casa) |
+| Saquear ninho | `nests.raid` (o seu trabalho de casa) |
 | Sobreviver a uma noite | o watcher de fase do `game.ts` já detecta `dusk -> night`; a virada `night -> dawn` é o par natural |
 
 Valor por inimigo provavelmente deve escalar com o quanto ele é perigoso — `maxHealth` e `attack` já dão uma base razoável, em vez de uma tabela à mão.
@@ -874,7 +883,7 @@ Colisão **entre entidades** entra ou não? Hoje unidades se sobrepõem livremen
    - **3b. Carcaças** — loot vira recurso no chão; pré-requisito para o verme fazer sentido como loot farm.
 4. **Identidade de região** (seção 4) — FEITO. Pré-requisito do verme (seção 5) e do cap por região (seção 8).
 5. **Verme: spawn/rota/comportamento** (seção 5) — FEITO.
-6. **Ninho: saque/respawn/UI** (seção 6) — depende de tudo acima.
+6. **Ninho: saque/respawn/UI** (seção 6) — FEITO.
 7. **Fauna passiva** (seção 7) — FEITO. Capivara como animal caçável; base para outros pacíficos.
 8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
 10. **Alcance derivado** (seção 10) — FEITO.

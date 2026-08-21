@@ -84,6 +84,13 @@
       @close="structurePanelOpen = false"
     />
 
+    <!-- Territorial enemy nest raid modal (mounted once, shown on demand) -->
+    <NestRaidModal
+      v-if="selectedNest"
+      :nest="selectedNest"
+      @close="closeNestModal"
+    />
+
     <!-- Game over overlay -->
     <Transition name="hud">
       <div
@@ -110,7 +117,7 @@
 
 <script setup lang="ts">
 import { LazyResourcePanel } from "#components";
-import { drawEntityIconSync, drawIconSync, preloadAllIcons, STATUS_ICONS } from "@/utils/iconRenderer";
+import { drawEntityIconSync, drawIconSync, preloadAllIcons, NEST_ICONS, STATUS_ICONS } from "@/utils/iconRenderer";
 import { useCameraStore } from "@/stores/camera";
 import { useTimeStore, type TimeSpeed } from "@/stores/time";
 import { useInventoryStore } from "@/stores/inventory";
@@ -122,6 +129,7 @@ import { useEnemyStore } from "@/stores/enemies";
 import { useCombatStore } from "@/stores/combat";
 import { useGameStore } from "@/stores/game";
 import { useSelectionStore } from "@/stores/selection";
+import { useNestStore, type Nest } from "@/stores/nests";
 import { UnitType, type Unit } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
 import { BiomeType } from "@/types/Terrain";
@@ -142,6 +150,10 @@ const gameStore = useGameStore();
 const selectionStore = useSelectionStore();
 const inventoryStore = useInventoryStore();
 const timeStore = useTimeStore();
+const nestStore = useNestStore();
+
+/** World-space size of the nest chest icon — scales with zoom like any other entity, unlike the fixed-size status badges. */
+const NEST_ICON_SIZE = 40;
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 let ctx: CanvasRenderingContext2D | null = null;
@@ -162,6 +174,7 @@ const resourcePanelOverlay = overlay.create(LazyResourcePanel);
 
 const structurePanelOpen = ref(false);
 const selectedStructure = ref<Structure | null>(null);
+const selectedNest = ref<Nest | null>(null);
 
 let speedBeforePause: TimeSpeed = 1;
 
@@ -213,6 +226,14 @@ function openStructurePanel(structure: Structure) {
   structurePanelOpen.value = true;
 }
 
+function openNestModal(nest: Nest) {
+  selectedNest.value = nest;
+}
+
+function closeNestModal() {
+  selectedNest.value = null;
+}
+
 function centerOnFort() {
   const fortPos = structureStore.fortPosition;
   if (fortPos) camera.centerOn(fortPos.x, fortPos.y);
@@ -231,6 +252,7 @@ function regenerateWorld() {
 
   unitStore.initialize();
   enemyStore.initialize();
+  nestStore.initialize();
   inventoryStore.clear();
   selectionStore.deselectAll();
   timeStore.reset();
@@ -238,6 +260,7 @@ function regenerateWorld() {
 
   structurePanelOpen.value = false;
   selectedStructure.value = null;
+  selectedNest.value = null;
 }
 
 interface PingEffect {
@@ -270,6 +293,7 @@ onMounted(async () => {
 
   unitStore.initialize();
   enemyStore.initialize();
+  nestStore.initialize();
   gameStore.reset();
   gameStore.startDayWatcher();
   resizeCanvas();
@@ -399,6 +423,12 @@ const render = () => {
 
     drawEntityIconSync(ctx, structure, structure.position, { size: structure.iconSize });
     drawHealthBar(structure.position, structure.iconSize, structure.health, structure.maxHealth);
+  }
+
+  for (const nest of nestStore.allNests) {
+    if (!circleOnScreen(nest.position.x, nest.position.y, NEST_ICON_SIZE / 2, view)) continue;
+
+    drawIconSync(ctx, NEST_ICONS[nest.state], nest.position, NEST_ICON_SIZE);
   }
 
   for (const enemy of enemies) {
@@ -691,6 +721,17 @@ const handleMouseMove = (e: MouseEvent) => {
     }
   }
 
+  if (!hovering) {
+    for (const nest of nestStore.allNests) {
+      const dx = world.x - nest.position.x;
+      const dy = world.y - nest.position.y;
+      if (dx * dx + dy * dy < (NEST_ICON_SIZE / 2) ** 2) {
+        hovering = true;
+        break;
+      }
+    }
+  }
+
   if (canvasRef.value) {
     canvasRef.value.style.cursor = hovering ? "pointer" : "default";
   }
@@ -846,6 +887,19 @@ const handleMouseUp = (e: MouseEvent) => {
           if (dx * dx + dy * dy < (structure.iconSize / 2) ** 2) {
             if (!additive) selectionStore.deselectAll();
             openStructurePanel(structure);
+            clickedSomething = true;
+            break;
+          }
+        }
+      }
+
+      if (!clickedSomething) {
+        for (const nest of nestStore.allNests) {
+          const dx = world.x - nest.position.x;
+          const dy = world.y - nest.position.y;
+          if (dx * dx + dy * dy < (NEST_ICON_SIZE / 2) ** 2) {
+            if (!additive) selectionStore.deselectAll();
+            openNestModal(nest);
             clickedSomething = true;
             break;
           }

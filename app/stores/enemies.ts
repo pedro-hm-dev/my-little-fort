@@ -12,7 +12,7 @@ import { combatRangeFor } from "@/utils/combatEngine";
 import actionDefs from "@/data/actionDefinitions.json";
 import type { ActionDefinition } from "@/types/Combat";
 import { generatePatrolRoute } from "@/utils/patrol";
-import type { BiomeType } from "@/types/Terrain";
+import type { BiomeRegion, BiomeType } from "@/types/Terrain";
 
 type EnemyDefKey = keyof typeof enemyDefs;
 const ACTION_DEFS = actionDefs as unknown as Record<string, ActionDefinition>;
@@ -65,6 +65,7 @@ function createEnemy(type: EnemyType, position: Position, behavior: Enemy["behav
     swimSpeed: def.swimSpeed,
     aquatic: (def as { aquatic?: boolean }).aquatic ?? false,
     hostileToAll: (def as { hostileToAll?: boolean }).hostileToAll ?? false,
+    passive: (def as { passive?: boolean }).passive ?? false,
     baseAttack: def.attack,
     attack: def.attack,
     baseDefense: def.defense,
@@ -182,7 +183,7 @@ export const useEnemyStore = defineStore("enemies", () => {
   /**
    * Where a territorial enemy walks when it is not fighting. Wounded and unengaged, it retreats to
    * the nest and heals there; otherwise it walks its patrol loop. Being enraged suppresses resting,
-   * so a raided nest can't send the worm home mid-rampage.
+   * so a raided nest can't send it home mid-rampage.
    */
   function territorialDestination(enemy: Enemy, gameDeltaMs: number): Position | undefined {
     const wounded = enemy.health < enemy.maxHealth;
@@ -215,6 +216,29 @@ export const useEnemyStore = defineStore("enemies", () => {
   }
 
   /**
+   * Places one territorial enemy in a region: a fresh patrol route, nest position defaulting to the
+   * route's center. `pinnedNestPosition` lets a nest respawn (stores/nests.ts) keep the nest at
+   * its original spot even though the new patrol loop has a different center.
+   */
+  function spawnTerritorialInRegion(type: EnemyType, region: BiomeRegion, pinnedNestPosition?: Position): Enemy | null {
+    const [minWaypoints, maxWaypoints] = PATROL_WAYPOINT_RANGE;
+    const waypointCount = minWaypoints + Math.floor(Math.random() * (maxWaypoints - minWaypoints + 1));
+    const route = generatePatrolRoute(region.outline, waypointCount);
+
+    if (!route) return null;
+
+    const enemy = createEnemy(type, route.center, "territorial");
+    enemy.regionId = region.id;
+    enemy.patrolRoute = route.waypoints;
+    enemy.patrolIndex = 0;
+    enemy.nestPosition = { ...(pinnedNestPosition ?? route.center) };
+
+    addEnemy(enemy);
+
+    return enemy;
+  }
+
+  /**
    * Territorial enemies are placed deterministically — one per matching biome region, on world init —
    * instead of going through spawnAmbient's probabilistic roll. Two deserts means two worms.
    */
@@ -228,19 +252,7 @@ export const useEnemyStore = defineStore("enemies", () => {
       for (const region of worldStore.regionsOfBiome(def.habitat.biome as BiomeType)) {
         if (allEnemies.value.some((enemy) => enemy.regionId === region.id && enemy.type === type)) continue;
 
-        const [minWaypoints, maxWaypoints] = PATROL_WAYPOINT_RANGE;
-        const waypointCount = minWaypoints + Math.floor(Math.random() * (maxWaypoints - minWaypoints + 1));
-        const route = generatePatrolRoute(region.outline, waypointCount);
-
-        if (!route) continue;
-
-        const enemy = createEnemy(type, route.center, "territorial");
-        enemy.regionId = region.id;
-        enemy.patrolRoute = route.waypoints;
-        enemy.patrolIndex = 0;
-        enemy.nestPosition = { ...route.center };
-
-        addEnemy(enemy);
+        spawnTerritorialInRegion(type, region);
       }
     }
   }
@@ -382,6 +394,7 @@ export const useEnemyStore = defineStore("enemies", () => {
     spawnHorde,
     spawnAmbient,
     spawnTerritorial,
+    spawnTerritorialInRegion,
     updateEnemyAI,
     initialize,
   };

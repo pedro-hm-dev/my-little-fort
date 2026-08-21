@@ -44,6 +44,12 @@ export const STATUS_ICONS = {
   fleeing: { name: "run", color: "#facc15" },
 } as const;
 
+/** Territorial enemy nest, drawn like any other map entity via drawIconSync — see stores/nests.ts. */
+export const NEST_ICONS = {
+  unclaimed: { name: "nest-eggs", color: "#F0E68C" },
+  cooldown: { name: "crow-nest", color: "#F0E68C" },
+} as const;
+
 function resolveIconName(entity: Structure | Unit | Resource | Enemy): string {
   if (entity.iconName) return entity.iconName;
   return DEFAULT_ICON;
@@ -224,6 +230,11 @@ export async function preloadAllIcons(): Promise<void> {
 
   // Status markers (own colors, not tied to an entity type)
   for (const icon of Object.values(STATUS_ICONS)) {
+    iconColorPairs.push({ name: icon.name, color: icon.color });
+  }
+
+  // Worm nest chest icons
+  for (const icon of Object.values(NEST_ICONS)) {
     iconColorPairs.push({ name: icon.name, color: icon.color });
   }
 

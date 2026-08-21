@@ -242,6 +242,11 @@
       { "type": "fat", "chance": 1, "amount": [25, 89] },
       { "type": "whiteMeat", "chance": 1, "amount": [20, 75] },
       { "type": "legendaryFang", "chance": 1, "amount": [1, 6] }
+    ],
+    "nestLoot": [
+      { "type": "fat", "chance": 1, "amount": [40, 90] },
+      { "type": "whiteMeat", "chance": 1, "amount": [30, 80] },
+      { "type": "legendaryFang", "chance": 0.5, "amount": [1, 3] }
     ]
   },
 
