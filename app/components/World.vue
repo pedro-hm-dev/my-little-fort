@@ -133,8 +133,8 @@ import { useNestStore, type Nest } from "@/stores/nests";
 import { UnitType, type Unit } from "@/types/Unit";
 import { type Structure } from "@/types/Structure";
 import { BiomeType } from "@/types/Terrain";
-import { circleIntersectsRect } from "@/utils/geometry";
-import { boundsOnScreen, circleOnScreen, outlineBounds, viewportBounds, type Bounds } from "@/utils/viewport";
+import { circleIntersectsRect, outlineBounds } from "@/utils/geometry";
+import { boundsOnScreen, circleOnScreen, viewportBounds, type Bounds } from "@/utils/viewport";
 import unitDefs from "@/data/unitDefinitions.json";
 
 type UnitDefKey = keyof typeof unitDefs;

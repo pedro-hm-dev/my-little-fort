@@ -1,6 +1,6 @@
-import { outlineBounds, type Bounds } from "@/utils/geometry";
+import { type Bounds } from "@/utils/geometry";
 
-export { outlineBounds, type Bounds };
+export { type Bounds };
 
 /** World-space rect currently on screen, from the canvas size and the camera transform. */
 export function viewportBounds(
