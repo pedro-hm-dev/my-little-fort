@@ -395,43 +395,54 @@ Fauna pacífica **não é desenhada em vermelho**. `ENTITY_COLORS` ganhou `wildl
 
 ---
 
-## 8. Spawn de inimigos: taxa e cap por região de bioma — PLANEJADO
+## 8. Spawn de inimigos: taxa e cap por instância de habitat — IMPLEMENTADO
 
-Mantém a cadência **horária** que já existe, e troca o teto global por um teto **por região**.
+Antes: `game.ts` rolava **35% por hora, uma vez, para todos os tipos juntos**, e o `ambientCap` era um teto global por tipo. Raridade não era configurável, e um mapa com 2 desertos tinha o mesmo número de diabos de poeira que um com 1.
 
-### Como funciona hoje
+### Dois campos por def
 
-- `game.ts` roda um check a cada hora de jogo (`AMBIENT_CHECK_INTERVAL_MS`) com 35% de chance fixa (`AMBIENT_SPAWN_CHANCE`) para **todos** os tipos de uma vez.
-- `spawnAmbient` em `enemies.ts` percorre cada tipo ambient e para no `ambientCap` do def, que é um **teto global por tipo** no mapa inteiro (default 4).
-- Resultado: a raridade de cada bicho não é configurável (todos dividem os mesmos 35%), e um mapa com 2 desertos tem exatamente o mesmo número de diabos de poeira que um mapa com 1.
+- **`spawnRate`** — chance por hora de jogo **e por instância de habitat**. É a raridade: mamute 0,08, capivara 0,50.
+- **`biomeCap`** — teto **por instância**. O teto do mapa é `biomeCap × nº de instâncias`.
 
-### Como deve funcionar
+O `AMBIENT_SPAWN_CHANCE` global saiu de `game.ts`; `spawnAmbient` passa a ser chamado a cada hora e cada tipo rola o seu.
 
-Dois campos novos por def em `enemyDefinitions.json`:
+### Instância de habitat, não só região de bioma
 
-- **`spawnRate`** — um número único que já **é** a raridade: a chance, por hora de jogo e por região do habitat, de nascer um indivíduo ali. Valor baixo = raro. Substitui o `AMBIENT_SPAWN_CHANCE` global de 0,35, que passa a não existir.
-- **`biomeCap`** — teto **por região**, não do mapa.
+O plano dizia "cap por região", mas isso tinha um furo: **grassland não tem regiões** — é o preenchimento default do mapa. A capivara mora lá, então com "por região" ela teria zero instâncias e **nunca spawnaria**.
 
-O ciclo passa a ser: a cada hora de jogo, para cada região que casa com o `habitat` do bicho, rola `spawnRate`; se passar, nasce um, desde que a região ainda não tenha chegado no `biomeCap`.
+A abstração que resolve é `HabitatInstance`, um lugar onde o habitat existe:
 
-Exemplo com `spawnRate: 0.25` e `biomeCap: 3` num mapa com **2 desertos**: cada deserto rola 25% por hora, então em ~12 horas de jogo cada um tende a encher os 3 e para. O mapa comporta **até 6**. Com 1 deserto, comporta 3 — o teto escala com a geografia gerada, que é o ponto.
+| Habitat | Instâncias |
+| ------- | ---------- |
+| `biome` com regiões | uma por região |
+| `biome` sem regiões (grassland) | **uma implícita, cobrindo o mapa** |
+| `lake` | uma por lago |
+| `resource` | uma global (árvores são espalhadas, não há instância natural) |
 
-Um bicho raro fica `spawnRate: 0.03`; um bicho comum, `spawnRate: 0.5`. Não há campo de quantidade separado: a quantidade emerge da taxa somada ao cap.
+Cada instância traz `contains(position)` e `sample()`. O `contains` é avaliado **na hora da rolagem**, não gravado no inimigo: animais andam, e um `regionId` copiado no spawn fica errado no instante em que o urso sai da tundra. Como roda 1x por hora, o custo do `pointInPolygon` é irrelevante — a mesma conclusão da seção 4.
 
-### Dependências e pontos de atenção
+### Teto resultante no mapa de teste (2 desertos, 1 tundra, 6 lagos)
 
-- **Depende da seção 4** (`id` em `BiomeRegion`, `biomeRegions` exposto e a contagem por bioma). Sem identidade estável de região não há como contar "quantos já existem nesta região".
-- **Contagem por região precisa de um teste de pertencimento.** Duas opções: guardar `regionId` no `Enemy` no momento do spawn (barato, mas fica errado assim que o bicho anda para fora), ou contar por `pointInPolygon(enemy.position, region.outline)` na hora de rolar (sempre correto e roda 1x por hora, custo irrelevante). **Recomendo o segundo.**
-- **Habitats que não são bioma.** O lobo usa `habitat: {kind:"resource", resourceType:"wood"}` e a piranha `{kind:"lake"}`. A generalização natural é o cap ser **por instância do habitat**: por região de bioma para `kind:"biome"`, por lago para `kind:"lake"`. Para `kind:"resource"` não há instância óbvia — decisão aberta.
-- **O `ambientCap` global sai de cena**, substituído pelo `biomeCap`. O `packBiome`/`packSizeRange` do lobo continua fazendo sentido como "nasce em grupo", e é ortogonal ao `spawnRate` — vale checar na hora se dá para unificar.
-- **Onde fica o gatilho:** continua no `updateGame` de `game.ts`, no mesmo `AMBIENT_CHECK_INTERVAL_MS` de hoje. O que muda é que a rolagem passa a ser por tipo **e** por região, em vez de uma rolagem global.
+| bicho | rate | cap | instâncias | teto |
+| ----- | ---- | --- | ---------- | ---- |
+| capivara | 0,50 | 8 | 1 (grassland) | 8 |
+| piranha | 0,30 | 4 | 6 lagos | **24** |
+| sapo piranha | 0,20 | 3 | 6 lagos | **18** |
+| escorpião | 0,40 | 6 | 2 desertos | 12 |
+| velociraptor | 0,30 | 6 | 2 desertos | 12 |
+| diabo de poeira | 0,20 | 4 | 2 desertos | 8 |
+| parassaurolofo | 0,15 | 3 | 2 desertos | 6 |
+| lobo | 0,35 | 6 | 1 (recurso) | 6 |
+| urso | 0,15 | 3 | 1 tundra | 3 |
+| tigre | 0,12 | 2 | 1 tundra | 2 |
+| mamute | 0,08 | 2 | 1 tundra | 2 |
 
-### Decisões abertas
+**Total de ~101 inimigos ambient no cap**, e os aquáticos dominam: 42 dos 101, porque a geração faz muitos lagos. Vale considerar baixar piranha para 3 e sapo para 2 (teto cairia para 30). Em performance está tranquilo — a seção 9 mediu 100 inimigos em 25% do frame — mas 42 bichos na água é muito visualmente.
 
-- **Cap para habitat de lago e de recurso:** por lago resolve a piranha. Para o lobo (habitat `resource`), o cap volta a ser global por tipo, ou passa a ser por região de bioma da posição sorteada?
-- **Números por bicho:** `spawnRate` e `biomeCap` de cada um dos 7 inimigos.
+### Decisões que ficaram
 
----
+- **`kind: "resource"` manteve cap global.** Não há instância natural: as árvores estão espalhadas por todo lado, e dividir por árvore daria um teto absurdo. Se um dia virar problema, o caminho é agrupar por cluster de recurso.
+- **`packBiome`/`packSizeRange` sobreviveram** e são ortogonais ao `spawnRate`: a taxa decide *se* nasce, o pack decide *quantos* de uma vez. O lobo segue só fazendo matilha em floresta.
 
 ## 9. Performance — A–D1 + correções de `isInWater` IMPLEMENTADOS
 
@@ -885,7 +896,7 @@ Colisão **entre entidades** entra ou não? Hoje unidades se sobrepõem livremen
 5. **Verme: spawn/rota/comportamento** (seção 5) — FEITO.
 6. **Ninho: saque/respawn/UI** (seção 6) — FEITO.
 7. **Fauna passiva** (seção 7) — FEITO. Capivara como animal caçável; base para outros pacíficos.
-8. **Taxa e cap por região no spawn** (seção 8) — depende da seção 4, como o verme.
+8. **Taxa e cap por instância de habitat** (seção 8) — FEITO.
 10. **Alcance derivado** (seção 10) — FEITO.
 11. **Ataques novos** (seção 11) — FEITO. charge, poisonSting, evilMagicRay.
 12. **Construção** (seção 12) — base de 13, 14 e 15. Estoque **tem** posição física, o que encarece bastante.
